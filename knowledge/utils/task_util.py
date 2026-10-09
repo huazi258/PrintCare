@@ -1,4 +1,4 @@
-from typing import Dict, List
+from typing import Any, Dict, List
 from collections import defaultdict
 
 
@@ -12,10 +12,11 @@ _tasks_done_list: Dict[str, List[str]] = defaultdict(list)
 _tasks_duration: Dict[str, Dict[str, float]] = defaultdict(dict)
 
 # 只要访问不存在的 key，自动帮你初始化为 {} 查询时候用
-_tasks_result: Dict[str, Dict[str, str]] = defaultdict(dict)
+_tasks_result: Dict[str, Dict[str, Any]] = defaultdict(dict)
 
 _tasks_status: Dict[str, str] = {}
 
+TASK_STATUS_PENDING = "pending"  # 任务已创建，等待执行
 TASK_STATUS_PROCESSING = "processing"  # 任务处理中
 TASK_STATUS_COMPLETED = "completed"  # 任务完成
 TASK_STATUS_FAILED = "failed"  # 任务失败
@@ -88,19 +89,38 @@ def get_task_status(task_id: str) -> str:
     return _tasks_status.get(task_id, "")
 
 
+def create_task(task_id: str) -> None:
+    """登记一个尚未执行的任务，供状态接口在后台任务启动前查询。"""
+    _tasks_status.setdefault(task_id, TASK_STATUS_PENDING)
+
+
+def task_exists(task_id: str) -> bool:
+    """判断任务是否已在当前进程的任务表中登记过。"""
+    return any(
+        task_id in task_store
+        for task_store in (
+            _tasks_status,
+            _tasks_running_list,
+            _tasks_done_list,
+            _tasks_duration,
+            _tasks_result,
+        )
+    )
+
+
 def update_task_status(task_id: str, status_name: str) -> None:
     # 1. 更新指定任务的总体运行状态（如 processing 等）
     _tasks_status[task_id] = status_name
 
 
-def set_task_result(task_id: str, key: str, value: str) -> None:
+def set_task_result(task_id: str, key: str, value: Any) -> None:
     """
     存储任务结果字段（如 answer / error）。
     """
     _tasks_result[task_id][key] = value
 
 
-def get_task_result(task_id: str, key: str, default: str = "") -> str:
+def get_task_result(task_id: str, key: str, default: Any = "") -> Any:
     """
     获取任务结果字段（如 answer / error）。
     """

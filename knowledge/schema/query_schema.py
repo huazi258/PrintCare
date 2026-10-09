@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -23,3 +23,14 @@ class StreamSubmitResponse(BaseModel):
     message: str
     session_id: str
     task_id: str
+
+
+class QueryTaskStatusResponse(BaseModel):
+    """查询任务状态响应。"""
+    status: str
+    running_list: List[str] = Field(default_factory=list)
+    done_list: List[str] = Field(default_factory=list)
+    durations: Dict[str, float] = Field(default_factory=dict)
+    answer: str = ""
+    error: Optional[str] = None
+    image_urls: List[str] = Field(default_factory=list)

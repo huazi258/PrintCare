@@ -4,8 +4,8 @@ from typing import List, Dict, Any
 
 from knowledge.processor.query_process.main_graph import query_app
 from knowledge.utils.mongo_history_util import clear_history, get_recent_messages
-from knowledge.utils.task_util import update_task_status, TASK_STATUS_PROCESSING, TASK_STATUS_COMPLETED, \
-    TASK_STATUS_FAILED, get_task_result
+from knowledge.utils.task_util import create_task, get_task_result, set_task_result, update_task_status, \
+    TASK_STATUS_COMPLETED, TASK_STATUS_FAILED, TASK_STATUS_PROCESSING
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +36,7 @@ class QueryService:
         except Exception as e:
             # 5.失败，记录失败
             logger.error(f"启动查询流程执行失败：{e}")
+            set_task_result(task_id, "error", str(e))
             update_task_status(task_id, TASK_STATUS_FAILED)
 
     def generate_session_id(self) -> str:
@@ -62,4 +63,6 @@ class QueryService:
         return clear_history(session_id)
 
     def generate_task_id(self):
-        return str(uuid.uuid4().hex[:8])
+        task_id = str(uuid.uuid4().hex[:8])
+        create_task(task_id)
+        return task_id

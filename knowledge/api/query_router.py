@@ -12,9 +12,10 @@ from starlette.staticfiles import StaticFiles
 
 from knowledge.core.deps import get_query_service
 from knowledge.core.paths import get_front_page_dir
-from knowledge.schema.query_schema import QueryRequest, StreamSubmitResponse, QueryResponse
+from knowledge.schema.query_schema import QueryRequest, QueryResponse, QueryTaskStatusResponse, StreamSubmitResponse
 from knowledge.services.query_service import QueryService
 from knowledge.utils.sse_util import create_sse_queue, sse_generator
+from knowledge.utils.task_util import get_task_info, get_task_result, task_exists
 
 
 def create_app() -> FastAPI:
@@ -77,6 +78,24 @@ def register_routers(app: FastAPI):
         # 6.返回答案
         return QueryResponse(message="处理完成", session_id=session_id, answer=answer,task_id=task_id)
 
+    @app.get("/status/{task_id}", response_model=QueryTaskStatusResponse)
+    async def get_status(task_id: str):
+        """返回当前进程内查询任务的进度和已有结果。"""
+        if not task_exists(task_id):
+            raise HTTPException(status_code=404, detail="查询任务不存在或已失效")
+
+        task_info = get_task_info(task_id)
+        image_urls = get_task_result(task_id, "image_urls", [])
+        if not isinstance(image_urls, list):
+            image_urls = []
+
+        return {
+            **task_info,
+            "answer": get_task_result(task_id, "answer", ""),
+            "error": get_task_result(task_id, "error", None),
+            "image_urls": image_urls,
+        }
+
     @app.get("/history/{session_id}")
     async def get_history(session_id: str, limit: int = 50, service: QueryService = Depends(get_query_service)):
         try:
@@ -85,7 +104,7 @@ def register_routers(app: FastAPI):
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"获取历史记录异常：str(e)")
 
-    @app.get("/history/{session_id}")
+    @app.delete("/history/{session_id}")
     async def clear_chat_history(session_id: str, service: QueryService = Depends(get_query_service)):
         count = service.clear_history(session_id)
         return {"message": "历史记录清除成功", "deleted_count": count}
