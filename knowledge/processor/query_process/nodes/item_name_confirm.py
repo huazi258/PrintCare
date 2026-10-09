@@ -25,6 +25,9 @@ class ItemNameExtractor:
     基于用户的原始问题和历史对话提取用户真正想问的商品名称
     """
 
+    def __init__(self):
+        self.logger = logging.getLogger("query.item_name_extractor")
+
     def extract_item_name(self, original_query: str, history_text: str) -> Dict[str, Any]:
         """LLM根据用户的原始问题和历史会话内容提前商品名称"""
 
@@ -111,6 +114,9 @@ class ItemNameAligner:
         2.评分对齐
         3.分数差异过滤
     """
+
+    def __init__(self):
+        self.logger = logging.getLogger("query.item_name_aligner")
 
     def match_align_filter(self, item_names: List[str]) -> Tuple[List[str], List[str]]:
         """执行匹配，对齐，过滤三步流程"""
@@ -291,7 +297,9 @@ class ItemNameConfirmNode(BaseNode):
         # 5.历史回填
         if confirmed:
             ids_to_update = [
-                str(msg["_id"] for msg in chat_history if not msg.get("item_names"))
+                str(msg["_id"])
+                for msg in chat_history
+                if msg.get("_id") is not None and not msg.get("item_names")
             ]
             if ids_to_update:
                 try:

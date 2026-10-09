@@ -155,29 +155,40 @@ class AnswerOutputNode(BaseNode):
         used_chars = 0
         formatted_lines = []
 
-        for idx, doc in enumerate(reranked_docs, 1):  # 索引从1开始，不是从0开始啦
-            conent = doc.get("content", "").strip()
-            if not conent:
+        for idx, doc in enumerate(reranked_docs or [], 1):  # 索引从1开始，不是从0开始啦
+            if not isinstance(doc, dict):
                 continue
-            meta_tags = [f"[{idx}]"]
-            for field, template in [
-                {"source", "[source={}]"},
-                {"chunk_id", "[chunk_id={}]"},
-                {"url", "[url={}]"},
-                {"title", "[title={}]"}
-            ]:
+            content = str(doc.get("content") or "").strip()
+            if not content:
+                continue
 
-                field_value = str(doc.get(field, "")).strip()
+            meta_tags = [f"[{idx}]"]
+            for field, template in (
+                ("source", "[source={}]"),
+                ("chunk_id", "[chunk_id={}]"),
+                ("url", "[url={}]"),
+                ("title", "[title={}]"),
+            ):
+                raw_field_value = doc.get(field)
+                if raw_field_value is None:
+                    continue
+                field_value = str(raw_field_value).strip()
                 if field_value:
                     meta_tags.append(template.format(field_value))
+
             relevance_score = doc.get("score")
             if relevance_score is not None:
-                meta_tags.append(f"[score={relevance_score}:.4f]")
-            doc_entry = " ".join(meta_tags) + "\n" + conent
-            if used_chars + len(doc_entry) > char_budget:
+                try:
+                    meta_tags.append(f"[score={float(relevance_score):.4f}]")
+                except (TypeError, ValueError):
+                    pass
+
+            doc_entry = " ".join(meta_tags) + "\n" + content
+            separator_length = 2 if formatted_lines else 0
+            if used_chars + separator_length + len(doc_entry) > char_budget:
                 break
             formatted_lines.append(doc_entry)
-            used_chars += len(doc_entry) + 2
+            used_chars += separator_length + len(doc_entry)
         return "\n\n".join(formatted_lines), char_budget - used_chars
 
     def _format_chat_history(self, chat_history: List[Dict], char_budget) -> Tuple[str, int]:

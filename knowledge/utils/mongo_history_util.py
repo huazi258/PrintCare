@@ -2,6 +2,7 @@ import logging
 from typing import List, Dict, Any
 from datetime import datetime
 from bson import ObjectId
+from bson.errors import InvalidId
 from pymongo.collection import Collection
 from pymongo import DESCENDING
 
@@ -70,7 +71,8 @@ def get_recent_messages(session_id: str, limit: int = 10) -> List[Dict[str, Any]
             .sort("ts", DESCENDING)
             .limit(limit)
         )
-        return list(cursor)
+        # 先按倒序取最近 N 条，再在内存中恢复为旧消息到新消息的顺序。
+        return list(reversed(list(cursor)))
     except Exception as e:
         logger.error(f"Error getting recent messages: {e}")
         return []
@@ -85,6 +87,39 @@ def clear_history(session_id: str) -> int:
         logger.error(f"Error clearing history for session {session_id}: {e}")
         return 0
 
-def update_message_item_names(ids_to_update, confirmed):
-    #TODO 待实现
-    pass
+def update_message_item_names(ids_to_update, confirmed: List[str]) -> int:
+    """仅为尚未确认商品名的指定历史记录回填 ``item_names``。"""
+    if not confirmed:
+        return 0
+
+    object_ids = []
+    seen_ids = set()
+    for message_id in ids_to_update:
+        try:
+            object_id = message_id if isinstance(message_id, ObjectId) else ObjectId(str(message_id))
+        except (InvalidId, TypeError, ValueError):
+            logger.warning("Skip invalid history message id while backfilling item names: %r", message_id)
+            continue
+
+        if object_id not in seen_ids:
+            object_ids.append(object_id)
+            seen_ids.add(object_id)
+
+    if not object_ids:
+        return 0
+
+    try:
+        result = _get_collection().update_many(
+            {
+                "_id": {"$in": object_ids},
+                "$or": [
+                    {"item_names": {"$exists": False}},
+                    {"item_names": []},
+                ],
+            },
+            {"$set": {"item_names": list(confirmed)}},
+        )
+        return result.modified_count
+    except Exception:
+        logger.exception("Failed to backfill item_names for history messages")
+        return 0
