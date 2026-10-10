@@ -34,6 +34,7 @@ class DiagnosisOption(DiagnosisSchemaModel):
 
     option_id: NonEmptyText
     text: NonEmptyText
+    option_type: Literal["normal", "uncertain", "other"] = "normal"
 
 
 class DiagnosisQuestion(DiagnosisSchemaModel):

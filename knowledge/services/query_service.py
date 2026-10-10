@@ -43,6 +43,8 @@ class QueryService:
             "diagnosis_id": diagnosis_id,
             "diagnosis_facts": context.confirmed_facts,
             "diagnosis_answer_history": context.answer_history,
+            "clarification_count": session.get("clarification_count", 0),
+            "diagnosis_status": session.get("status", "in_progress"),
             "session_id": "",
             "task_id": task_id,
             "is_stream": is_stream,

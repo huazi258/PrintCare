@@ -71,6 +71,16 @@ class DiagnosisSchemaTestCase(unittest.TestCase):
             adapter.validate_python(self._insufficient()), DiagnosisInsufficientDecision
         )
 
+    def test_option_type_defaults_to_normal_and_accepts_uncertain_or_other(self):
+        default_option = DiagnosisAskDecision.model_validate(self._ask()).questions[0].options[0]
+        self.assertEqual(default_option.option_type, "normal")
+        payload = self._ask()
+        payload["questions"][0]["options"][0]["option_type"] = "uncertain"
+        self.assertEqual(
+            DiagnosisAskDecision.model_validate(payload).questions[0].options[0].option_type,
+            "uncertain",
+        )
+
     def test_ask_accepts_one_to_three_questions(self):
         for question_count in (1, 3):
             decision = DiagnosisAskDecision.model_validate(self._ask(question_count=question_count))

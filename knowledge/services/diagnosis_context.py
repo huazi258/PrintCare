@@ -9,8 +9,6 @@ from knowledge.core.devices import resolve_supported_device
 
 
 DEFAULT_MAX_RETRIEVAL_QUERY_CHARS = 4_000
-_UNCERTAIN_OPTION_IDS = frozenset({"unknown", "uncertain", "not_sure", "other"})
-_UNCERTAIN_OPTION_TEXTS = frozenset({"不确定", "其他", "不知道", "无法判断"})
 
 
 @dataclass(frozen=True)
@@ -97,7 +95,7 @@ class DiagnosisContextAssembler:
 
                 supplemental_note = self._clean_text(answer.get("supplemental_note"))
                 option_text = option["text"]
-                answer_kind = self._answer_kind(option_id, option_text)
+                answer_kind = self._answer_kind(option["option_type"])
                 record = {
                     "round_index": round_index,
                     "question_id": question_id,
@@ -201,19 +199,25 @@ class DiagnosisContextAssembler:
                     continue
                 option_id = option.get("option_id")
                 option_text = DiagnosisContextAssembler._clean_text(option.get("text"))
+                option_type = option.get("option_type", "normal")
+                if option_type not in {"normal", "uncertain", "other"}:
+                    continue
                 if isinstance(option_id, str) and option_text and option_id not in options:
-                    options[option_id] = {"text": option_text}
+                    options[option_id] = {"text": option_text, "option_type": option_type}
             if options:
                 result[question_id] = {"text": question_text, "options": options}
         return result
 
     @staticmethod
-    def _answer_kind(option_id: str, option_text: str) -> str:
-        normalized_id = option_id.strip().lower().replace("-", "_")
-        normalized_text = option_text.strip()
-        if normalized_id in _UNCERTAIN_OPTION_IDS or normalized_text in _UNCERTAIN_OPTION_TEXTS:
-            return "unconfirmed"
-        return "confirmed"
+    def _answer_kind(option_type: str) -> str:
+        """Only an explicit option type can mark an answer as uncertain.
+
+        Sessions saved before ``option_type`` was introduced are read as
+        ``normal`` by ``_question_map`` for backward compatibility.  New
+        question generators must mark uncertain/other choices explicitly;
+        display text and option identifiers are never used as evidence rules.
+        """
+        return "confirmed" if option_type == "normal" else "unconfirmed"
 
     @staticmethod
     def _render_answer(record: dict[str, Any]) -> str:

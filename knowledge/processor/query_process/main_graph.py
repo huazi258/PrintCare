@@ -24,6 +24,7 @@ from knowledge.processor.query_process.nodes.rrf import RrfNode
 from knowledge.processor.query_process.nodes.rerank import RerankNode
 from knowledge.processor.query_process.nodes.web_search_mcp import WebSearchMcpNode
 from knowledge.processor.query_process.nodes.diagnosis_placeholder import DiagnosisPlaceholderNode
+from knowledge.processor.query_process.nodes.diagnosis_decision import DiagnosisDecisionNode
 # 加载环境变量
 load_dotenv()
 
@@ -61,6 +62,8 @@ def route_after_rerank(state: QueryGraphState) -> str:
     """Route the shared post-rerank evidence to the selected business mode."""
     if state.get("mode", "qa") == "qa":
         return "answer_output"
+    if state.get("mode") == "diagnosis":
+        return "diagnosis_decision"
     return "diagnosis_placeholder"
 
 
@@ -98,7 +101,7 @@ def create_query_graph() -> CompiledStateGraph:
                 rerank                                     │
                    │                                       │
                    v                                       │
-          answer_output / diagnosis_placeholder <──────────┘
+          answer_output / diagnosis_decision <──────────────┘
                    │
                    v
                   END
@@ -120,6 +123,7 @@ def create_query_graph() -> CompiledStateGraph:
         "rrf": RrfNode(),
         "rerank": RerankNode(),
         "answer_output": AnswerOutputNode(),
+        "diagnosis_decision": DiagnosisDecisionNode(),
         "diagnosis_placeholder": DiagnosisPlaceholderNode(),
     }
 
@@ -161,10 +165,12 @@ def create_query_graph() -> CompiledStateGraph:
         route_after_rerank,
         {
             "answer_output": "answer_output",
+            "diagnosis_decision": "diagnosis_decision",
             "diagnosis_placeholder": "diagnosis_placeholder",
         },
     )
     workflow.add_edge("answer_output", END)
+    workflow.add_edge("diagnosis_decision", END)
     workflow.add_edge("diagnosis_placeholder", END)
 
     # 9. 返回可运行的状态

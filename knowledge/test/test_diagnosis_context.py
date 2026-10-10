@@ -25,7 +25,12 @@ class DiagnosisContextTestCase(unittest.TestCase):
             "question_id": question_id,
             "text": f"问题 {question_id}",
             "options": [
-                {"option_id": option_id, "text": text} for option_id, text in options
+                {
+                    "option_id": option[0],
+                    "text": option[1],
+                    "option_type": option[2] if len(option) == 3 else "normal",
+                }
+                for option in options
             ],
             "references": [{"source_id": "chunk:101"}],
         }
@@ -114,8 +119,8 @@ class DiagnosisContextTestCase(unittest.TestCase):
         rounds = [{
             "round_index": 1,
             "questions": [
-                self._question("q1", [("unknown", "不确定")]),
-                self._question("q2", [("other", "其他")]),
+                self._question("q1", [("unknown", "不确定", "uncertain")]),
+                self._question("q2", [("other", "其他", "other")]),
             ],
             "answers": [
                 {"question_id": "q1", "option_id": "unknown"},
@@ -130,6 +135,17 @@ class DiagnosisContextTestCase(unittest.TestCase):
         ])
         self.assertIn("待确认的历史回答", context.rewritten_query)
         self.assertIn("仅在换料后出现", context.rewritten_query)
+
+    def test_option_display_text_does_not_override_explicit_normal_type(self):
+        rounds = [{
+            "round_index": 1,
+            "questions": [self._question("q1", [("custom", "不确定", "normal")])],
+            "answers": [{"question_id": "q1", "option_id": "custom"}],
+        }]
+
+        context = DiagnosisContextAssembler().assemble(self._session(rounds))
+
+        self.assertEqual(context.answer_history[0]["kind"], "confirmed")
 
     def test_malformed_or_duplicate_answers_are_ignored_and_context_is_bounded(self):
         rounds = [{

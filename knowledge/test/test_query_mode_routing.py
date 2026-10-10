@@ -94,7 +94,7 @@ class QueryModeRoutingTestCase(unittest.TestCase):
 
     def test_mode_routing_selects_qa_or_diagnosis_after_rerank(self):
         self.assertEqual(main_graph.route_after_rerank({"mode": "qa"}), "answer_output")
-        self.assertEqual(main_graph.route_after_rerank({"mode": "diagnosis"}), "diagnosis_placeholder")
+        self.assertEqual(main_graph.route_after_rerank({"mode": "diagnosis"}), "diagnosis_decision")
 
     def test_early_answer_never_sends_diagnosis_to_normal_answer_output(self):
         self.assertEqual(
@@ -126,6 +126,13 @@ class QueryModeRoutingTestCase(unittest.TestCase):
             "diagnosis": RecordingNode(
                 {
                     "answer": "",
+                    "diagnosis_status": "candidate",
+                    "diagnosis_candidate": {"action": "insufficient"},
+                }
+            ),
+            "placeholder": RecordingNode(
+                {
+                    "answer": "",
                     "diagnosis_status": "not_available",
                     "diagnosis_message": "诊断功能尚未开放",
                 }
@@ -138,7 +145,9 @@ class QueryModeRoutingTestCase(unittest.TestCase):
         ), patch.object(main_graph, "RrfNode", return_value=nodes["rrf"]), patch.object(
             main_graph, "RerankNode", return_value=nodes["rerank"]
         ), patch.object(main_graph, "AnswerOutputNode", return_value=nodes["answer"]), patch.object(
-            main_graph, "DiagnosisPlaceholderNode", return_value=nodes["diagnosis"]
+            main_graph, "DiagnosisDecisionNode", return_value=nodes["diagnosis"]
+        ), patch.object(
+            main_graph, "DiagnosisPlaceholderNode", return_value=nodes["placeholder"]
         ):
             graph = main_graph.create_query_graph()
         return graph, nodes
@@ -152,7 +161,7 @@ class QueryModeRoutingTestCase(unittest.TestCase):
         self.assertEqual(nodes["diagnosis"].calls, [])
         self.assertEqual(result["answer"], "qa answer")
 
-    def test_compiled_diagnosis_graph_executes_local_searches_only_then_placeholder(self):
+    def test_compiled_diagnosis_graph_executes_local_searches_only_then_decision(self):
         graph, nodes = self._create_recording_graph()
         result = graph.invoke({"mode": "diagnosis", "original_query": "打印失败"})
 
@@ -160,7 +169,7 @@ class QueryModeRoutingTestCase(unittest.TestCase):
             self.assertEqual(len(nodes[node_name].calls), 1, node_name)
         self.assertEqual(nodes["web"].calls, [])
         self.assertEqual(nodes["answer"].calls, [])
-        self.assertEqual(result["diagnosis_status"], "not_available")
+        self.assertEqual(result["diagnosis_status"], "candidate")
         self.assertEqual(result["answer"], "")
 
     def test_compiled_diagnosis_early_answer_skips_all_searches_and_normal_output(self):
@@ -169,7 +178,8 @@ class QueryModeRoutingTestCase(unittest.TestCase):
 
         for node_name in ("vector", "hyde", "web", "rrf", "rerank", "answer"):
             self.assertEqual(nodes[node_name].calls, [], node_name)
-        self.assertEqual(len(nodes["diagnosis"].calls), 1)
+        self.assertEqual(nodes["diagnosis"].calls, [])
+        self.assertEqual(len(nodes["placeholder"].calls), 1)
         self.assertEqual(result["diagnosis_status"], "not_available")
 
     def test_web_mcp_node_blocks_diagnosis_and_unknown_modes_before_client_creation(self):

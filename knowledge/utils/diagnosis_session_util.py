@@ -179,6 +179,8 @@ class DiagnosisSessionRepository:
         session = self._get_required_session(diagnosis_id, visitor_id)
         self._require_expected_revision(session, expected_revision)
         self._require_status(session, "in_progress")
+        if session["clarification_count"] >= 3:
+            raise DiagnosisSessionStateError("已达到三轮追问上限")
         if session["rounds"] and not session["rounds"][-1].get("answers"):
             raise DiagnosisSessionStateError("当前问题组尚未完成回答")
 
@@ -196,6 +198,10 @@ class DiagnosisSessionRepository:
                 "visitor_id": visitor_id,
                 "revision": expected_revision,
                 "status": "in_progress",
+                # This condition must remain in the atomic write filter: a
+                # concurrent caller cannot append a fourth round after its
+                # stale pre-read passed the guard above.
+                "clarification_count": {"$lt": 3},
             },
             {
                 "$push": {"rounds": round_record},

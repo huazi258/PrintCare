@@ -24,8 +24,11 @@ class QueryGraphState(TypedDict):
     diagnosis_id: str             # MongoDB 诊断会话标识（T2-03）
     diagnosis_facts: list         # 已确认诊断事实（T2-03）
     diagnosis_answer_history: list  # 已答诊断问题历史（T2-03）
-    diagnosis_status: str         # 诊断占位状态（T1-03）
-    diagnosis_message: str        # 诊断占位说明（T1-03）
+    clarification_count: int      # 已持久化的追问轮数
+    diagnosis_candidate: dict     # 未经 T2-05 引用验证的候选决策
+    diagnosis_system_error: dict  # 模型/解析系统失败，不等同资料不足
+    diagnosis_status: str         # 诊断内部状态
+    diagnosis_message: str        # 诊断内部状态说明
     embedding_chunks: list        # 向量检索结果
     hyde_embedding_chunks: list   # HyDE检索结果
     rrf_chunks: list              # RRF融合后的切片
@@ -52,6 +55,9 @@ DEFAULT_STATE: QueryGraphState = {
     "diagnosis_id": "",
     "diagnosis_facts": [],
     "diagnosis_answer_history": [],
+    "clarification_count": 0,
+    "diagnosis_candidate": {},
+    "diagnosis_system_error": {},
     "diagnosis_status": "",
     "diagnosis_message": "",
     "embedding_chunks": [],

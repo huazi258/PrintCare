@@ -103,6 +103,9 @@ class FakeDiagnosisCollection:
             if isinstance(expected, dict) and "$ne" in expected:
                 if any(value == expected["$ne"] for value in values):
                     return False
+            elif isinstance(expected, dict) and "$lt" in expected:
+                if not values or any(value >= expected["$lt"] for value in values):
+                    return False
             elif not values or any(value != expected for value in values):
                 return False
         return True
@@ -340,6 +343,28 @@ class DiagnosisSessionRepositoryTestCase(unittest.TestCase):
         self.assertEqual(restored["revision"], 2)
         self.assertEqual(len(restored["rounds"][0]["answers"]), 1)
         self.assertEqual(len(restored["facts"]), 1)
+
+    def test_question_round_write_rejects_a_fourth_round(self):
+        created = self._create()
+        revision = 0
+        for round_index in range(1, 4):
+            self.repository.save_question_round(
+                created["diagnosis_id"], "visitor-a", self._ask_decision(), revision
+            )
+            revision += 1
+            self.repository.save_answers(
+                "visitor-a",
+                self._answer_request(created["diagnosis_id"], f"request-{round_index}", revision),
+            )
+            revision += 1
+
+        with self.assertRaisesRegex(DiagnosisSessionStateError, "三轮追问上限"):
+            self.repository.save_question_round(
+                created["diagnosis_id"], "visitor-a", self._ask_decision(), revision
+            )
+        self.assertEqual(
+            self.repository.get_session(created["diagnosis_id"], "visitor-a")["clarification_count"], 3
+        )
 
     def test_state_transitions_do_not_auto_resolve_and_reject_terminal_changes(self):
         created = self._create()
