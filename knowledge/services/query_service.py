@@ -2,6 +2,7 @@ import logging
 import uuid
 from typing import List, Dict, Any
 
+from knowledge.core.devices import resolve_supported_device
 from knowledge.processor.query_process.main_graph import query_app
 from knowledge.utils.mongo_history_util import clear_history, get_recent_messages
 from knowledge.utils.task_util import create_task, get_task_result, set_task_result, update_task_status, \
@@ -9,14 +10,23 @@ from knowledge.utils.task_util import create_task, get_task_result, set_task_res
 
 logger = logging.getLogger(__name__)
 
+SUPPORTED_QUERY_MODES = {"qa", "diagnosis"}
+
 
 class QueryService:
 
-    def run_query_graph(self, session_id, task_id, user_query: str, is_stream: bool):
+    def run_query_graph(self, session_id, task_id, user_query: str, is_stream: bool, device_id=None, mode="qa"):
         """执行LangGraph 查询流程
         注意：流式模式的 SSE 队列由路由层在调用前创建
         """
+        if mode not in SUPPORTED_QUERY_MODES:
+            raise ValueError(f"不支持的查询模式: {mode}")
+
         try:
+            # Validate again at the service boundary so direct callers cannot
+            # construct an unscoped graph state.
+            device = resolve_supported_device(device_id)
+
             # 1.更新任务状态
             update_task_status(task_id, TASK_STATUS_PROCESSING)
 
@@ -25,7 +35,11 @@ class QueryService:
                 "original_query": user_query,
                 "session_id": session_id,
                 "task_id": task_id,
-                "is_stream": is_stream
+                "is_stream": is_stream,
+                "device_id": device.device_id,
+                "device_model": device.device_model,
+                "item_names": [device.item_name],
+                "mode": mode,
             }
 
             # 3.执行查询图谱

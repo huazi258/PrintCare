@@ -52,7 +52,7 @@ class _MilvusSchemaBuilder:
     def build(client: MilvusClient, dim: int) -> CollectionSchema:
         logger.info("开始构建约束(schema)...")
         # 1.构建约束对象(动态映射)
-        schema = client.create_schema(_enable_dynamic_field=True)
+        schema = client.create_schema(enable_dynamic_field=True)
         # 2.构建主键字段约束
         schema.add_field(
             field_name="chunk_id",

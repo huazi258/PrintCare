@@ -130,7 +130,17 @@ def execute_hybrid_search_query(milvus_client: MilvusClient,
         raise RuntimeError(f"执行Milvus混合搜索失败 (collection={collection_name}): {e}") from e
 
 
-def item_names_filter(item_names: List[str]) -> Tuple[str, Dict[str, Any]]:
-    expr = "item_name in {item_names}"
-    expr_params = {"item_names": item_names}
+def item_names_filter(item_names: List[str], device_id: str) -> Tuple[str, Dict[str, Any]]:
+    """Build the mandatory server-owned device and item-name predicate.
+
+    The same expression is supplied to both dense and sparse AnnSearchRequest
+    objects, ensuring Milvus filters candidates before hybrid ranking.
+    """
+    if not device_id:
+        raise ValueError("device_id 不能为空，不能执行未限定设备的检索")
+    if not item_names:
+        raise ValueError("item_names 不能为空，不能执行未限定设备的检索")
+
+    expr = "device_id == {device_id} and item_name in {item_names}"
+    expr_params = {"device_id": device_id, "item_names": item_names}
     return expr, expr_params

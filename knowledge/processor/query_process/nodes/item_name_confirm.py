@@ -279,17 +279,24 @@ class ItemNameConfirmNode(BaseNode):
             content = msg.get("text", "")
             history_text += f"{role}:{content}\n"
 
-        # 2.LLM提取商品名称,并且清理代码块后的结果字符串
+        # 2. LLM may still rewrite the query using history, but a server-owned
+        # device is authoritative: its canonical item_name cannot be replaced
+        # by extracted or vector-aligned item names.
         clean_llm_result = self._item_name_extractor.extract_item_name(original_query, history_text)
 
         item_names = clean_llm_result.get("item_names")
-        rewritten_query = clean_llm_result.get("rewritten_query")
+        rewritten_query = clean_llm_result.get("rewritten_query") or original_query
+        fixed_item_names = state.get("item_names") if state.get("device_id") else None
 
-        # 3.向量匹配: 查询向量数据库  && 过滤
-        if item_names:
-            confirmed, options = self._item_name_aligner.match_align_filter(item_names)
+        # 3. A confirmed device bypasses product-name identification.  This
+        # avoids both a second source of truth and a fallback to other models.
+        if fixed_item_names:
+            confirmed, options = fixed_item_names, []
         else:
-            confirmed, options = [], []
+            if item_names:
+                confirmed, options = self._item_name_aligner.match_align_filter(item_names)
+            else:
+                confirmed, options = [], []
 
         # 4.决策分支，更新sate
         self._decide(state, item_names, confirmed, options, rewritten_query)

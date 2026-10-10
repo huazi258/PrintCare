@@ -23,24 +23,45 @@ from knowledge.processor.query_process.nodes.hyde_search import HyDeSearchNode
 from knowledge.processor.query_process.nodes.rrf import RrfNode
 from knowledge.processor.query_process.nodes.rerank import RerankNode
 from knowledge.processor.query_process.nodes.web_search_mcp import WebSearchMcpNode
+from knowledge.processor.query_process.nodes.diagnosis_placeholder import DiagnosisPlaceholderNode
 # 加载环境变量
 load_dotenv()
 
 
-def route_after_item_confirm(state: QueryGraphState) -> bool:
+def route_after_item_confirm(state: QueryGraphState) -> str:
     """商品名称确认后的路由逻辑。
 
-    根据是否已有答案决定是否跳过搜索直接输出。
+    两种受支持模式均复用本地检索链；只有 qa 可继续进入 Web MCP。
+    无效模式 fail-closed 到诊断占位节点，避免意外放宽为联网检索。
 
     Args:
         state: 查询图状态。
 
     Returns:
-        True 表示已有答案需要跳过搜索，False 表示继续搜索流程。
+        下一个节点名称。
     """
+    mode = state.get("mode", "qa")
+    if mode not in {"qa", "diagnosis"}:
+        return "diagnosis_placeholder"
     if state.get("answer"):
-        return True
-    return False
+        return "answer_output" if mode == "qa" else "diagnosis_placeholder"
+    return "multi_search"
+
+
+def route_search_branches(state: QueryGraphState) -> list[str]:
+    """按模式选择并行检索分支，诊断模式不调度 Web MCP 节点。"""
+    if state.get("mode", "qa") == "qa":
+        return ["search_embedding", "search_embedding_hyde", "web_search_mcp"]
+    if state.get("mode") == "diagnosis":
+        return ["search_embedding", "search_embedding_hyde"]
+    return []
+
+
+def route_after_rerank(state: QueryGraphState) -> str:
+    """Route the shared post-rerank evidence to the selected business mode."""
+    if state.get("mode", "qa") == "qa":
+        return "answer_output"
+    return "diagnosis_placeholder"
 
 
 def create_query_graph() -> CompiledStateGraph:
@@ -63,7 +84,7 @@ def create_query_graph() -> CompiledStateGraph:
              ┌─────┼──────────┐                            │
              │     │          │                            │
              v     v          v                            │
-        embedding  hyde    web_mcp                         │
+        embedding  hyde    web_mcp (qa only)               │
              │     │          │                            │
              └─────┼──────────┘                            │
                    │                                       │
@@ -77,7 +98,7 @@ def create_query_graph() -> CompiledStateGraph:
                 rerank                                     │
                    │                                       │
                    v                                       │
-             answer_output <───────────────────────────────┘
+          answer_output / diagnosis_placeholder <──────────┘
                    │
                    v
                   END
@@ -98,7 +119,8 @@ def create_query_graph() -> CompiledStateGraph:
         "join": lambda x: {},  # 虚拟节点（汇合）
         "rrf": RrfNode(),
         "rerank": RerankNode(),
-        "answer_output": AnswerOutputNode()
+        "answer_output": AnswerOutputNode(),
+        "diagnosis_placeholder": DiagnosisPlaceholderNode(),
     }
 
     # 3. 添加节点
@@ -113,15 +135,18 @@ def create_query_graph() -> CompiledStateGraph:
         "item_name_confirm",
         route_after_item_confirm,
         {
-            False: "multi_search",
-            True: "answer_output"
+            "multi_search": "multi_search",
+            "answer_output": "answer_output",
+            "diagnosis_placeholder": "diagnosis_placeholder",
         }
     )
 
-    # 6. 多路搜索分发（并行执行）
-    workflow.add_edge("multi_search", "search_embedding")
-    workflow.add_edge("multi_search", "search_embedding_hyde")
-    workflow.add_edge("multi_search", "web_search_mcp")
+    # 6. 按模式并行分发：diagnosis 永远不调度 Web MCP。
+    workflow.add_conditional_edges(
+        "multi_search",
+        route_search_branches,
+        ["search_embedding", "search_embedding_hyde", "web_search_mcp"],
+    )
 
     # 7. 多路搜索汇合
     workflow.add_edge("search_embedding", "join")
@@ -131,8 +156,16 @@ def create_query_graph() -> CompiledStateGraph:
     # 8. 顺序边
     workflow.add_edge("join", "rrf")
     workflow.add_edge("rrf", "rerank")
-    workflow.add_edge("rerank", "answer_output")
+    workflow.add_conditional_edges(
+        "rerank",
+        route_after_rerank,
+        {
+            "answer_output": "answer_output",
+            "diagnosis_placeholder": "diagnosis_placeholder",
+        },
+    )
     workflow.add_edge("answer_output", END)
+    workflow.add_edge("diagnosis_placeholder", END)
 
     # 9. 返回可运行的状态
     return workflow.compile()

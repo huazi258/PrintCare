@@ -165,9 +165,14 @@ class AnswerOutputNode(BaseNode):
             meta_tags = [f"[{idx}]"]
             for field, template in (
                 ("source", "[source={}]"),
+                ("source_id", "[source_id={}]"),
                 ("chunk_id", "[chunk_id={}]"),
                 ("url", "[url={}]"),
                 ("title", "[title={}]"),
+                ("file_title", "[file_title={}]"),
+                ("item_name", "[item_name={}]"),
+                ("device_id", "[device_id={}]"),
+                ("device_model", "[device_model={}]"),
             ):
                 raw_field_value = doc.get(field)
                 if raw_field_value is None:

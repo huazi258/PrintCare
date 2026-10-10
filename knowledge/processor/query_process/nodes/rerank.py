@@ -49,48 +49,91 @@ class RerankNode(BaseNode):
         for rrf_doc in (state.get("rrf_chunks") or []):
             if not isinstance(rrf_doc, dict):
                 continue
-            content = rrf_doc.get("content", "").strip()
+            content = self._clean_text(rrf_doc.get("content"))
             if not content:
                 continue
 
-            title = rrf_doc.get("title", "").strip()
+            title = self._clean_text(rrf_doc.get("title"))
             chunk_id = rrf_doc.get("chunk_id")
-            format_rrf_doc = self._format_rrf_docs(
+            format_rrf_doc = self._format_local_doc(
                 content=content,
                 title=title,
-                chunk_id=chunk_id, source="local"
+                chunk_id=chunk_id,
+                source="local",
+                file_title=rrf_doc.get("file_title"),
+                item_name=rrf_doc.get("item_name"),
+                device_id=rrf_doc.get("device_id"),
+                device_model=rrf_doc.get("device_model"),
             )
             final_docs.append(format_rrf_doc)
 
-        for web_doc in (state.get("web_search_docs") or []):
-            if not isinstance(web_doc, dict):
-                continue
-            content = web_doc.get("content", "").strip() or web_doc.get("snippet", "").strip()
-            if not content:
-                continue
-            title = web_doc.get("title", "").strip()
-            url = web_doc.get("url", "").strip()
-            format_web_doc = self._format_rrf_docs(
-                content=content,
-                title=title,
-                url=url,
-                source="web"
-            )
-            final_docs.append(format_web_doc)
+        # 只有 qa 可以合并网页证据。即使诊断 State 被意外注入网页结果，
+        # 也不能将其交给 Rerank 或诊断占位节点。
+        if state.get("mode", "qa") == "qa":
+            for web_doc in (state.get("web_search_docs") or []):
+                if not isinstance(web_doc, dict):
+                    continue
+                content = self._clean_text(web_doc.get("content")) or self._clean_text(web_doc.get("snippet"))
+                if not content:
+                    continue
+                title = self._clean_text(web_doc.get("title"))
+                url = self._clean_text(web_doc.get("url"))
+                format_web_doc = self._format_web_doc(
+                    content=content,
+                    title=title,
+                    url=url,
+                )
+                final_docs.append(format_web_doc)
 
         self.logger.info(f"收集到准备Rerank精排的文档数量:{len(final_docs)}")
         self.logger.info(f"收集到准备Rerank精排的文档集合:{final_docs}")
 
         return final_docs
 
-    def _format_rrf_docs(self, content: str, title: str, chunk_id=None, url=str, source=str) -> Dict[str, Any]:
-        return {
+    @staticmethod
+    def _clean_text(value: Any) -> str:
+        return value.strip() if isinstance(value, str) else ""
+
+    @staticmethod
+    def _has_value(value: Any) -> bool:
+        return value is not None and (not isinstance(value, str) or bool(value.strip()))
+
+    def _format_local_doc(self, content: str, title: str, chunk_id: Any, source: str,
+                          file_title: Any, item_name: Any, device_id: Any,
+                          device_model: Any) -> Dict[str, Any]:
+        """保留 Milvus 实际返回的本地引用元数据，不为缺失字段造值。"""
+        result = {
             "content": content,
             "title": title,
-            "chunk_id": chunk_id,
-            "url": url,
-            "source": source
+            "source": source,
+            "source_type": "local",
+            "source_id": f"chunk:{chunk_id}" if self._has_value(chunk_id) else None,
+            "score": None,
         }
+        for field, value in (
+            ("chunk_id", chunk_id),
+            ("file_title", file_title),
+            ("item_name", item_name),
+            ("device_id", device_id),
+            ("device_model", device_model),
+        ):
+            if self._has_value(value):
+                result[field] = value
+        return result
+
+    def _format_web_doc(self, content: str, title: str, url: str) -> Dict[str, Any]:
+        """将 Web 结果规范化；URL 缺失时不创建替代来源标识。"""
+        result = {
+            "content": content,
+            "title": title,
+            "source": "web",
+            "source_type": "web",
+            "source_id": url or None,
+            "score": None,
+        }
+        if url:
+            result["url"] = url
+        return result
 
     def _rerank_merged_docs(self, user_query: str, merged_multi_docs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """使用Reranker模型对文档进行精排 """

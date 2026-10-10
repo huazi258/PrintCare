@@ -11,6 +11,7 @@ from starlette.responses import StreamingResponse
 from starlette.staticfiles import StaticFiles
 
 from knowledge.core.deps import get_query_service
+from knowledge.core.devices import UnsupportedDeviceError, resolve_supported_device
 from knowledge.core.paths import get_front_page_dir
 from knowledge.schema.query_schema import QueryRequest, QueryResponse, QueryTaskStatusResponse, StreamSubmitResponse
 from knowledge.services.query_service import QueryService
@@ -51,6 +52,17 @@ def register_routers(app: FastAPI):
     async def query(request: QueryRequest,
                     background_task: BackgroundTasks,
                     service: QueryService = Depends(get_query_service)):
+        # 设备必须在创建任务前由服务端校验。显示名称不来自客户端。
+        try:
+            device = resolve_supported_device(request.device_id)
+        except UnsupportedDeviceError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+        # T1-03 fail-closed: diagnosis has a graph placeholder but must not
+        # create a task or enter the current parallel search (including MCP).
+        if request.mode == "diagnosis":
+            raise HTTPException(status_code=501, detail="诊断功能尚未开放")
+
         # 1.获取session_id
         session_id = request.session_id or service.generate_session_id()
 
@@ -63,14 +75,31 @@ def register_routers(app: FastAPI):
             create_sse_queue(task_id)
 
             # 3.2 后台运行Graph
-            background_task.add_task(service.run_query_graph, session_id, task_id,request.query, True)
+            background_task.add_task(
+                service.run_query_graph,
+                session_id,
+                task_id,
+                request.query,
+                True,
+                device.device_id,
+                request.mode,
+            )
 
             # 3.3 返回响应
             return StreamSubmitResponse(message="查询流程已启动，请稍候...", task_id=task_id, session_id=session_id)
 
         # 4.非流式
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, service.run_query_graph, session_id, task_id, request.query, False)
+        await loop.run_in_executor(
+            None,
+            service.run_query_graph,
+            session_id,
+            task_id,
+            request.query,
+            False,
+            device.device_id,
+            request.mode,
+        )
 
         # 5.获取答案
         answer = service.get_answer(task_id)

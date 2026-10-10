@@ -18,6 +18,11 @@ class QueryGraphState(TypedDict):
     task_id: str                  # 任务ID
     message_id: str               # 消息ID
     original_query: str           # 原始查询
+    device_id: str                # 服务端确认的设备稳定标识
+    device_model: str             # 服务端确认的设备显示名
+    mode: str                     # qa / diagnosis
+    diagnosis_status: str         # 诊断占位状态（T1-03）
+    diagnosis_message: str        # 诊断占位说明（T1-03）
     embedding_chunks: list        # 向量检索结果
     hyde_embedding_chunks: list   # HyDE检索结果
     rrf_chunks: list              # RRF融合后的切片
@@ -38,6 +43,11 @@ DEFAULT_STATE: QueryGraphState = {
     "task_id": "",
     "message_id": "",
     "original_query": "",
+    "device_id": "",
+    "device_model": "",
+    "mode": "qa",
+    "diagnosis_status": "",
+    "diagnosis_message": "",
     "embedding_chunks": [],
     "hyde_embedding_chunks": [],
     "rrf_chunks": [],

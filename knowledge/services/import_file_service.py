@@ -3,6 +3,7 @@ import logging, os.path, shutil, uuid
 from typing import Tuple
 
 from fastapi import UploadFile
+from knowledge.core.devices import DEFAULT_DEVICE_ID, resolve_supported_device
 from knowledge.core.paths import get_local_base_dir
 from knowledge.processor.import_process.exceptions import FileProcessingError
 from knowledge.processor.import_process.main_graph import kb_import_graph_app
@@ -19,7 +20,7 @@ class ImportFileService:
         # %Y 四位    %y  两位
         return os.path.join(get_local_base_dir(), datetime.now().strftime("%Y%m%d"))
 
-    def process_upload_file(self, file) -> Tuple[str, str, str]:
+    def process_upload_file(self, file, device_id: str = DEFAULT_DEVICE_ID) -> Tuple[str, str, str]:
         """
             处理上传文件：
                 1.生成task_id,构建归档目录
@@ -32,6 +33,10 @@ class ImportFileService:
         :param file: 上文件
         :return: Tuple[str,str,str]
         """
+        # The service is also an entry point for non-HTTP callers, so validate
+        # before its first side effect as well.
+        resolve_supported_device(device_id)
+
         # 1.生成task_id,构建归档目录
         date_dir = self._get_date_dir()
         task_id = str(uuid.uuid4().hex[:8])
@@ -92,14 +97,18 @@ class ImportFileService:
         except Exception as e:
             logger.error(f"{filename}上传到Minio失败,原因：{str(e)}")
 
-    def run_import_graph(self, task_id: str, file_dir: str, import_file_path: str):
+    def run_import_graph(self, task_id: str, file_dir: str, import_file_path: str,
+                         device_id: str = DEFAULT_DEVICE_ID):
         """运行导入  Langgraph 流水线（后台异步执行任务）"""
         try:
+            device = resolve_supported_device(device_id)
             update_task_status(task_id, "processing")
             global_graph_state = {
                 "task_id": task_id,
                 "file_dir": file_dir,
-                "import_file_path": import_file_path
+                "import_file_path": import_file_path,
+                "device_id": device.device_id,
+                "device_model": device.device_model,
             }
             for event in kb_import_graph_app.stream(global_graph_state):
                 for node_name, state in event.items():

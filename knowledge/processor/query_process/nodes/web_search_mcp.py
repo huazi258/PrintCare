@@ -18,6 +18,12 @@ class WebSearchMcpNode(BaseNode):
 
     def process(self, state: QueryGraphState) -> Union[QueryGraphState, dict]:
         """执行网络搜索"""
+        # 诊断只能使用本地、已归属的资料。未知模式同样 fail-closed，
+        # 必须在参数校验和 MCP 客户端创建之前返回。
+        if state.get("mode", "qa") != "qa":
+            self.logger.warning("当前模式禁止 Web MCP 检索")
+            return state
+
         # 1.参数校验
         validated_rewritten_query, validate_item_names = self._validate_query_inputs(state)
 

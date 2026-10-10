@@ -22,7 +22,7 @@ class VectorSearchNode(BaseNode):
         """节点处理流程"""
 
         # 1.参数校验
-        validated_query, validate_item_names = self._validate_state(state)
+        validated_query, validate_item_names, device_id = self._validate_state(state)
 
         # 2.获取嵌入模型
         try:
@@ -46,7 +46,7 @@ class VectorSearchNode(BaseNode):
             return state
 
         # 5.构建过滤条件
-        expr, expr_params = item_names_filter(validate_item_names)
+        expr, expr_params = item_names_filter(validate_item_names, device_id)
 
         # 6.创建搜索请求
         hybrid_search_request: List[AnnSearchRequest] = create_hybrid_search_requests(
@@ -60,7 +60,10 @@ class VectorSearchNode(BaseNode):
         hybrid_search_resp = execute_hybrid_search_query(milvus_client=milvus_client,
                                                          collection_name=self.config.chunks_collection,
                                                          search_requests=hybrid_search_request,
-                                                         output_fields=["chunk_id", "content", "item_name", "title"])
+                                                          output_fields=[
+                                                              "chunk_id", "content", "title", "file_title", "item_name",
+                                                              "device_id", "device_model",
+                                                          ])
 
         if not hybrid_search_resp or not hybrid_search_resp[0]:
             self.logger.error(f"问题[{validated_query}],混合检索数据不存在")
@@ -71,11 +74,12 @@ class VectorSearchNode(BaseNode):
         # 8.返回结果
         return state
 
-    def _validate_state(self, state: QueryGraphState) -> Tuple[str, List[str]]:
+    def _validate_state(self, state: QueryGraphState) -> Tuple[str, List[str], str]:
         """校验输入参数"""
         # 1.获取参数
         rewritten_query = state.get("rewritten_query")
         item_names = state.get("item_names")
+        device_id = state.get("device_id")
 
         # 2.校验
         if not rewritten_query or not isinstance(rewritten_query, str):
@@ -83,9 +87,11 @@ class VectorSearchNode(BaseNode):
 
         if not item_names or not isinstance(item_names, list):
             raise StateFieldError(node_name=self.name, field_name="item_names", expected_type=list)
+        if not device_id or not isinstance(device_id, str):
+            raise StateFieldError(node_name=self.name, field_name="device_id", expected_type=str)
 
         # 3.返回
-        return rewritten_query, item_names
+        return rewritten_query, item_names, device_id
 
 
 # ================================================================== #

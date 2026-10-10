@@ -1,13 +1,16 @@
 import os.path
+from typing import Optional
+
 import uvicorn
 
 from fastapi.responses import FileResponse
-from fastapi import FastAPI, File, UploadFile, BackgroundTasks
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile, BackgroundTasks
 from fastapi.params import Depends
 from starlette.middleware.cors import CORSMiddleware
 from starlette.staticfiles import StaticFiles
 
 from knowledge.core.deps import get_import_file_service
+from knowledge.core.devices import UnsupportedDeviceError, resolve_supported_device
 from knowledge.core.paths import get_front_page_dir
 from knowledge.schema.upload_schema import UploadResponse, TaskStatusResponse
 from knowledge.services.import_file_service import ImportFileService
@@ -57,14 +60,28 @@ def register_router(app):
     @app.post("/upload", response_model=UploadResponse)
     async def upload_file(backGround_tasks: BackgroundTasks,
                           importFileService: ImportFileService = Depends(get_import_file_service),
+                          device_id: Optional[str] = Form(default=None),
                           file: UploadFile = File(...)):
         """Post请求处理  接收上传文件"""
 
+        # Validate the client-supplied identifier before any file, object-store,
+        # or background-task side effect.  Display names are always server-owned.
+        try:
+            device = resolve_supported_device(device_id)
+        except UnsupportedDeviceError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
         # 1. 上传文件 （本地 + MinIO）
-        task_id, file_dir, import_file_path = importFileService.process_upload_file(file)
+        task_id, file_dir, import_file_path = importFileService.process_upload_file(file, device.device_id)
 
         # 2. 将耗时的图谱流程放入后台任务，异步处理
-        backGround_tasks.add_task(importFileService.run_import_graph, task_id, file_dir, import_file_path)
+        backGround_tasks.add_task(
+            importFileService.run_import_graph,
+            task_id,
+            file_dir,
+            import_file_path,
+            device.device_id,
+        )
 
         # return {
         #     "task_id": "abc-123"

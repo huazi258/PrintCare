@@ -9,7 +9,11 @@ from knowledge.prompt.query_prompt import HYDE_USER_PROMPT_TEMPLATE
 from knowledge.utils.client.ai_clients import AIClients
 from knowledge.utils.client.storage_clients import StorageClients
 from knowledge.utils.embedding_util import generate_bge_m3_hybrid_vectors
-from knowledge.utils.milvus_util import create_hybrid_search_requests, execute_hybrid_search_query
+from knowledge.utils.milvus_util import (
+    create_hybrid_search_requests,
+    execute_hybrid_search_query,
+    item_names_filter,
+)
 
 
 class HyDeSearchNode(BaseNode):
@@ -33,7 +37,7 @@ class HyDeSearchNode(BaseNode):
         """
 
         # 1.参数校验
-        validated_query, validate_item_names = self._validate_query_inputs(state)
+        validated_query, validate_item_names, device_id = self._validate_query_inputs(state)
 
         # 2.生成假设性文档
         hy_document = self._generate_by_document(validated_query, validate_item_names)
@@ -54,18 +58,22 @@ class HyDeSearchNode(BaseNode):
             return state
 
         # 4.构建过滤条件
-        filter_expr = self._item_names_filter_expr(validate_item_names)
+        filter_expr, expr_params = item_names_filter(validate_item_names, device_id)
 
         # 5.创建搜索请求 +执行检索
         hybrid_search_requests = create_hybrid_search_requests(dense_vector=embedding_result['dense'][0],
-                                                               sparse_vector=embedding_result['sparse'][0],
-                                                               expr=filter_expr,
-                                                               limit=5)
+                                                                sparse_vector=embedding_result['sparse'][0],
+                                                                expr=filter_expr,
+                                                                expr_params=expr_params,
+                                                                limit=5)
 
         resp = execute_hybrid_search_query(milvus_client=milvus_client,
                                            collection_name=self.config.chunks_collection,
                                            search_requests=hybrid_search_requests,
-                                           output_fields=["chunk_id", "content", "item_name", "title"])
+                                            output_fields=[
+                                                "chunk_id", "content", "title", "file_title", "item_name",
+                                                "device_id", "device_model",
+                                            ])
 
         if not resp or not resp[0]:
             return state
@@ -77,13 +85,16 @@ class HyDeSearchNode(BaseNode):
         """参数校验"""
         rewritten_query = state.get("rewritten_query")
         item_names = state.get("item_names")
+        device_id = state.get("device_id")
 
         if not rewritten_query or not isinstance(rewritten_query, str):
             raise StateFieldError(node_name=self.name, field_name="rewritten_query", expected_type=str)
         if not item_names or not isinstance(item_names, list):
             raise StateFieldError(node_name=self.name, field_name="item_names", expected_type=list)
+        if not device_id or not isinstance(device_id, str):
+            raise StateFieldError(node_name=self.name, field_name="device_id", expected_type=str)
 
-        return rewritten_query, item_names
+        return rewritten_query, item_names, device_id
 
     def _generate_by_document(self, validated_query: str, validate_item_names: List[str]) -> str:
         """使用LLM生成假设性文档"""
@@ -116,12 +127,6 @@ class HyDeSearchNode(BaseNode):
         except Exception as e:
             self.logger.error(f"LLM调用失败：{e}")
             return ""
-
-    def _item_names_filter_expr(self, validate_item_names: List[str]) -> str:
-        """构建商品名过滤表达式"""
-        quoted = ",".join(f'"{v}"' for v in validate_item_names)
-        return f"item_name in [{quoted}]"
-
 
 # ================================================================== #
 #                        测试入口                                   #

@@ -5,6 +5,7 @@ import json
 from langchain_core.messages import SystemMessage, HumanMessage
 from pymilvus import DataType
 
+from knowledge.core.devices import resolve_supported_device
 from knowledge.processor.import_process.base import BaseNode, setup_logging
 from knowledge.processor.import_process.exceptions import StateFieldError, ValidationError
 from knowledge.prompt.import_prompt import ITEM_NAME_USER_PROMPT_TEMPLATE, ITEM_NAME_SYSTEM_PROMPT
@@ -19,12 +20,19 @@ class ItemNameRecognitionNode(BaseNode):
         # 1.参数校验
         file_title, chunks, item_name_chunks_k, item_name_chunk_size = self._validate_state(state)
 
-        # 2.构建商品名识别上下文
-        item_name_recognition_context = self._prepare_item_name_recognition_context(chunks, item_name_chunks_k,
-                                                                                    item_name_chunk_size)
-
-        # 3.LLM商品名识别
-        item_name = self._recognition_name(file_title, item_name_recognition_context)
+        # 2. A validated device assignment is authoritative.  Keep the legacy
+        # recognition path only for older, non-device-aware graph callers.
+        device_id = state.get("device_id")
+        if device_id:
+            device = resolve_supported_device(device_id)
+            state["device_id"] = device.device_id
+            state["device_model"] = device.device_model
+            item_name = device.item_name
+        else:
+            item_name_recognition_context = self._prepare_item_name_recognition_context(
+                chunks, item_name_chunks_k, item_name_chunk_size
+            )
+            item_name = self._recognition_name(file_title, item_name_recognition_context)
 
         # 4.向量化
         dense_vector, sparse_vector = self._embedding_item_name(item_name)
@@ -185,8 +193,13 @@ class ItemNameRecognitionNode(BaseNode):
         self.logger.info(f"集合【{item_name_collection}】创建成功")
 
     def _fill_item_name(self, item_name, state, chunks):
+        device_id = state.get("device_id")
+        device_model = state.get("device_model")
         for chunk in chunks:
             chunk["item_name"] = item_name
+            if device_id:
+                chunk["device_id"] = device_id
+                chunk["device_model"] = device_model
         state["item_name"] = item_name
 
     def _backup_chunks(self, state, chunks):

@@ -30,6 +30,12 @@ class ImportGraphState(TypedDict, total=False):
 
     task_id: str  # 任务 ID，用于任务追踪(web交互的时候用到，实时看到节点的处理日志)
 
+    # ==================== 设备归属 ====================
+
+    device_id: str  # 服务端校验后的稳定设备标识
+
+    device_model: str  # 服务端映射得到的规范显示名称
+
     # ==================== 控制标志 ====================
 
     is_md_read_enabled: bool  # 是否启用 MD 读取
@@ -70,6 +76,10 @@ class ImportGraphState(TypedDict, total=False):
 GRAPH_DEFAULT_STATE: ImportGraphState = {
 
     "task_id": "",
+
+    "device_id": "",
+
+    "device_model": "",
 
     "is_pdf_read_enabled": False,
 
