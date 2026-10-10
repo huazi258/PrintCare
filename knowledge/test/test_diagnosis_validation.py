@@ -58,6 +58,26 @@ def answer_candidate(text="请检查首层调平设置。", evidence=None):
     }
 
 
+def risky_answer_candidate(
+    conclusion: str,
+    conclusion_support: str,
+    recommendation: str,
+    recommendation_support: str,
+    excerpt: str,
+):
+    return {
+        "action": "answer",
+        "conclusion": conclusion,
+        "conclusion_evidence": [evidence_excerpt(conclusion_support, excerpt)],
+        "recommendations": [{
+            "text": recommendation,
+            "evidence": [evidence_excerpt(recommendation_support, excerpt)],
+        }],
+        "references": [{"source_id": "chunk:101"}],
+        "safety_notes": ["无法确认安全条件时停止操作。"],
+    }
+
+
 class DiagnosisValidationTestCase(unittest.TestCase):
     @staticmethod
     def _state(candidate, docs=None, **overrides):
@@ -167,6 +187,18 @@ class DiagnosisValidationTestCase(unittest.TestCase):
 
         self.assertEqual(result["diagnosis_status"], "validated")
 
+    def test_high_risk_recommendation_must_include_the_documented_safety_condition(self):
+        excerpt = "关闭电源并等待设备冷却后，才可拆卸底板检查线束。"
+        candidate = answer_candidate(
+            "请拆卸底板检查线束。",
+            [evidence_excerpt("拆卸底板检查线束", excerpt)],
+        )
+
+        result = DiagnosisValidationNode().process(self._state(candidate))
+
+        self.assertEqual(result["diagnosis_status"], "validation_rejected")
+        self.assertEqual(result["diagnosis_validation_error"]["code"], "unsafe_operation")
+
     def test_irrelevant_warning_does_not_authorize_risky_operation(self):
         excerpt = "断电后请阅读安全说明。拆卸底板检查线束。"
         document = {**K1_DOCUMENT, "content": excerpt}
@@ -206,6 +238,54 @@ class DiagnosisValidationTestCase(unittest.TestCase):
 
         self.assertEqual(result["diagnosis_status"], "validation_rejected")
         self.assertEqual(result["diagnosis_validation_error"]["code"], "unsafe_operation")
+
+    def test_explicitly_prohibited_live_electrical_operation_is_rejected(self):
+        excerpt = "禁止带电检查主板；即使断电也不得带电检查主板。"
+        document = {**K1_DOCUMENT, "content": excerpt}
+        candidate = risky_answer_candidate(
+            "资料明确禁止带电检查主板。",
+            "禁止带电检查主板",
+            "请断电后带电检查主板。",
+            "带电检查主板",
+            excerpt,
+        )
+
+        result = DiagnosisValidationNode().process(self._state(candidate, [document]))
+
+        self.assertEqual(result["diagnosis_status"], "validation_rejected")
+        self.assertEqual(result["diagnosis_validation_error"]["code"], "prohibited_operation")
+
+    def test_explicitly_prohibited_self_disassembly_is_rejected(self):
+        excerpt = "严禁自行拆机；即使断电也不得自行拆机。"
+        document = {**K1_DOCUMENT, "content": excerpt}
+        candidate = risky_answer_candidate(
+            "资料明确严禁自行拆机。",
+            "严禁自行拆机",
+            "请断电后自行拆机。",
+            "自行拆机",
+            excerpt,
+        )
+
+        result = DiagnosisValidationNode().process(self._state(candidate, [document]))
+
+        self.assertEqual(result["diagnosis_status"], "validation_rejected")
+        self.assertEqual(result["diagnosis_validation_error"]["code"], "prohibited_operation")
+
+    def test_explicitly_prohibited_hot_component_contact_is_rejected(self):
+        excerpt = "禁止接触高温喷嘴；即使等待冷却，也不得接触高温喷嘴。"
+        document = {**K1_DOCUMENT, "content": excerpt}
+        candidate = risky_answer_candidate(
+            "资料明确禁止接触高温喷嘴。",
+            "禁止接触高温喷嘴",
+            "请等待冷却后接触高温喷嘴。",
+            "接触高温喷嘴",
+            excerpt,
+        )
+
+        result = DiagnosisValidationNode().process(self._state(candidate, [document]))
+
+        self.assertEqual(result["diagnosis_status"], "validation_rejected")
+        self.assertEqual(result["diagnosis_validation_error"]["code"], "prohibited_operation")
 
     def test_generic_short_support_cannot_authorize_an_answer(self):
         excerpt = "请检查设备。"

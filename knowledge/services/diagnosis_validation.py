@@ -60,6 +60,10 @@ _GENERIC_SUPPORT_TERMS = (
     "检查", "设备", "打印机", "机器", "操作", "异常", "问题", "情况", "建议", "相关", "进行", "用户", "请", "需要", "可以",
     "check", "device", "printer", "machine", "operation", "issue", "problem", "please", "should",
 )
+_PROHIBITION_MARKERS = (
+    "禁止", "严禁", "不得", "不可", "不应", "不要", "避免",
+    "do not", "must not", "never", "prohibited", "forbidden",
+)
 
 
 def build_trusted_evidence(
@@ -176,6 +180,16 @@ def _validate_risky_recommendation(text: str, evidence: list[EvidenceExcerpt]) -
         matched_markers = [marker for marker in operation_markers if marker.casefold() in normalized_text]
         if not matched_markers:
             continue
+        if not any(marker.casefold() in normalized_text for marker in safety_markers):
+            raise DiagnosisValidationError(
+                "unsafe_operation",
+                "高风险建议未明确写出与资料一致的安全条件",
+            )
+        if any(_has_prohibited_operation(item.excerpt, matched_markers) for item in evidence):
+            raise DiagnosisValidationError(
+                "prohibited_operation",
+                "引用原文明示禁止该高风险操作，不能作为建议依据",
+            )
         if not any(
             any(marker.casefold() in _normalise(item.support_text) for marker in matched_markers)
             and _has_operation_safety_pair(item.excerpt, matched_markers, safety_markers)
@@ -185,6 +199,16 @@ def _validate_risky_recommendation(text: str, evidence: list[EvidenceExcerpt]) -
                 "unsafe_operation",
                 "高风险操作缺少同一原文片段中的具体操作依据和适用安全条件",
             )
+
+
+def _has_prohibited_operation(excerpt: str, operation_markers: list[str]) -> bool:
+    for segment in re.split(r"[。！？!?；;\r\n]+", excerpt):
+        normalized_segment = _normalise(segment)
+        if any(marker.casefold() in normalized_segment for marker in _PROHIBITION_MARKERS) and any(
+            marker.casefold() in normalized_segment for marker in operation_markers
+        ):
+            return True
+    return False
 
 
 def _has_operation_safety_pair(
