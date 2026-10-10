@@ -32,7 +32,14 @@ class CallbackLlm:
             payload = {
                 "action": "answer",
                 "conclusion": "资料与已确认的清洁情况支持继续检查首层调平。",
-                "recommendations": ["按资料检查首层调平设置。"],
+                "recommendations": [{
+                    "text": "按资料检查首层调平设置。",
+                    "evidence": [{
+                        "source_id": "chunk:101",
+                        "excerpt": "首层粘附异常时，可检查打印平台清洁和首层调平设置。",
+                        "support_text": "首层调平设置",
+                    }],
+                }],
                 "references": [{"source_id": "chunk:101"}],
                 "safety_notes": ["接触热端前先等待冷却。"],
             }
@@ -41,7 +48,7 @@ class CallbackLlm:
         return SimpleNamespace(content=json.dumps(payload, ensure_ascii=False))
 
 
-def ask_payload(question="异常是否只发生在首层？"):
+def ask_payload(question="首层粘附异常是否只发生在首层？"):
     return {
         "action": "ask",
         "questions": [
@@ -52,7 +59,11 @@ def ask_payload(question="异常是否只发生在首层？"):
                     {"option_id": "yes", "text": "是，仅首层", "option_type": "normal"},
                     {"option_id": "unknown", "text": "不确定", "option_type": "uncertain"},
                 ],
-                "references": [{"source_id": "chunk:101"}],
+                "references": [{
+                    "source_id": "chunk:101",
+                    "excerpt": "首层粘附异常时，可检查打印平台清洁和首层调平设置。",
+                    "support_text": "首层粘附异常",
+                }],
             }
         ],
     }
@@ -62,7 +73,14 @@ def answer_payload():
     return {
         "action": "answer",
         "conclusion": "资料指向需要检查首层调平。",
-        "recommendations": ["根据 K1 本地资料检查首层调平设置。"],
+        "recommendations": [{
+            "text": "根据 K1 本地资料检查首层调平设置。",
+            "evidence": [{
+                "source_id": "chunk:101",
+                "excerpt": "首层粘附异常时，可检查打印平台清洁和首层调平设置。",
+                "support_text": "首层调平设置",
+            }],
+        }],
         "references": [{"source_id": "chunk:101"}],
         "safety_notes": ["热端冷却后再进行接触式检查。"],
     }
@@ -81,8 +99,10 @@ class DiagnosisDecisionNodeTestCase(unittest.TestCase):
             "clarification_count": 0,
             "reranked_docs": [
                 {
+                    "source": "local",
                     "source_type": "local",
                     "source_id": "chunk:101",
+                    "chunk_id": 101,
                     "device_id": "creality-k1",
                     "title": "Creality K1 用户手册",
                     "content": "首层粘附异常时，可检查打印平台清洁和首层调平设置。",

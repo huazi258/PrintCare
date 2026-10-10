@@ -23,6 +23,7 @@ from knowledge.schema.diagnosis_schema import (
     DiagnosisDecision,
     DiagnosisInsufficientDecision,
 )
+from knowledge.services.diagnosis_validation import build_trusted_evidence
 from knowledge.utils.client.ai_clients import AIClients
 
 
@@ -114,29 +115,11 @@ class DiagnosisDecisionNode(BaseNode):
 
     @staticmethod
     def _trusted_local_evidence(state: QueryGraphState) -> list[dict[str, str]]:
-        """Defensively discard web, cross-device and unidentifiable records."""
-        device_id = state.get("device_id")
-        evidence: list[dict[str, str]] = []
-        for document in state.get("reranked_docs", []) or []:
-            if not isinstance(document, dict):
-                continue
-            if document.get("source_type") != "local" or document.get("device_id") != device_id:
-                continue
-            source_id = document.get("source_id")
-            content = document.get("content")
-            if not isinstance(source_id, str) or not source_id.strip():
-                continue
-            if not isinstance(content, str) or not content.strip():
-                continue
-            title = document.get("title") or document.get("file_title") or "未命名本地资料"
-            evidence.append(
-                {
-                    "source_id": source_id.strip(),
-                    "title": str(title).strip(),
-                    "content": content.strip(),
-                }
-            )
-        return evidence
+        """Use the same strict source set later consumed by validation."""
+        return [
+            {"source_id": item.source_id, "title": item.title, "content": item.content}
+            for item in build_trusted_evidence(state.get("reranked_docs"), state.get("device_id"))
+        ]
 
     def _build_prompt(
         self,
@@ -144,18 +127,16 @@ class DiagnosisDecisionNode(BaseNode):
         evidence: list[dict[str, str]],
         clarification_count: int,
     ) -> str:
-        rendered_evidence = []
+        rendered_evidence: list[str] = []
         remaining = self.config.max_context_chars
         for document in evidence:
-            entry = json.dumps(document, ensure_ascii=False)
-            if len(entry) > remaining:
-                entry = entry[:remaining].rstrip() + "…"
-            if not entry:
-                break
-            rendered_evidence.append(entry)
-            remaining -= len(entry)
             if remaining <= 0:
                 break
+            content_budget = max(1, remaining - len(document["source_id"]) - len(document["title"]) - 48)
+            prompt_document = {**document, "content": document["content"][:content_budget]}
+            entry = json.dumps(prompt_document, ensure_ascii=False)
+            rendered_evidence.append(entry)
+            remaining -= len(entry)
         return DIAGNOSIS_DECISION_USER_TEMPLATE.format(
             device_id=state.get("device_id", ""),
             device_model=state.get("device_model", ""),
@@ -196,6 +177,9 @@ class DiagnosisDecisionNode(BaseNode):
     def _set_candidate(state: QueryGraphState, decision: DiagnosisDecision) -> QueryGraphState:
         state["answer"] = ""
         state["diagnosis_candidate"] = decision.model_dump(mode="json")
+        state["diagnosis_validated"] = {}
+        state["diagnosis_validation_passed"] = False
+        state["diagnosis_validation_error"] = {}
         state["diagnosis_system_error"] = {}
         state["diagnosis_status"] = "candidate"
         state["diagnosis_message"] = "候选诊断决策尚待证据校验"
@@ -205,6 +189,9 @@ class DiagnosisDecisionNode(BaseNode):
     def _set_system_error(state: QueryGraphState, code: str) -> QueryGraphState:
         state["answer"] = ""
         state["diagnosis_candidate"] = {}
+        state["diagnosis_validated"] = {}
+        state["diagnosis_validation_passed"] = False
+        state["diagnosis_validation_error"] = {}
         state["diagnosis_system_error"] = {
             "code": code,
             "message": "诊断模型暂时不可用或返回无效结构，请稍后重试。",

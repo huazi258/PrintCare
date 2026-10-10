@@ -167,7 +167,11 @@ class DiagnosisSessionRepositoryTestCase(unittest.TestCase):
                             {"option_id": "option-1", "text": "首层打印时"},
                             {"option_id": "option-2", "text": "其他阶段"},
                         ],
-                        "references": [{"source_id": "chunk:101"}],
+                        "references": [{
+                            "source_id": "chunk:101",
+                            "excerpt": "K1 手册异常发生阶段。",
+                            "support_text": "异常发生阶段",
+                        }],
                     }
                 ],
             }
@@ -179,7 +183,14 @@ class DiagnosisSessionRepositoryTestCase(unittest.TestCase):
             {
                 "action": "answer",
                 "conclusion": "资料指向首层调平设置需要检查。",
-                "recommendations": ["按 K1 手册检查调平设置。"],
+                "recommendations": [{
+                    "text": "按 K1 手册检查调平设置。",
+                    "evidence": [{
+                        "source_id": "chunk:101",
+                        "excerpt": "K1 手册检查调平设置。",
+                        "support_text": "检查调平设置",
+                    }],
+                }],
                 "references": [{"source_id": "chunk:101"}],
                 "safety_notes": [],
             }

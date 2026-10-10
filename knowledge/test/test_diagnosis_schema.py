@@ -22,6 +22,14 @@ class DiagnosisSchemaTestCase(unittest.TestCase):
         return {"source_id": source_id}
 
     @classmethod
+    def _evidence_excerpt(cls, source_id="chunk:101"):
+        return {
+            "source_id": source_id,
+            "excerpt": "首层调平设置需要检查。",
+            "support_text": "首层调平设置",
+        }
+
+    @classmethod
     def _question(cls, question_id="question-1", option_count=2):
         return {
             "question_id": question_id,
@@ -30,7 +38,7 @@ class DiagnosisSchemaTestCase(unittest.TestCase):
                 {"option_id": f"option-{index}", "text": f"选项 {index}"}
                 for index in range(1, option_count + 1)
             ],
-            "references": [cls._reference()],
+            "references": [cls._evidence_excerpt()],
         }
 
     @classmethod
@@ -48,7 +56,10 @@ class DiagnosisSchemaTestCase(unittest.TestCase):
         return {
             "action": "answer",
             "conclusion": "现有资料指向首层调平设置需要检查。",
-            "recommendations": ["根据设备手册检查首层调平设置。"],
+            "recommendations": [{
+                "text": "根据设备手册检查首层调平设置。",
+                "evidence": [cls._evidence_excerpt()],
+            }],
             "references": [cls._reference()],
             "safety_notes": ["等待热端冷却后再进行需要接触热端的检查。"],
         }

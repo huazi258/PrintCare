@@ -29,6 +29,13 @@ class EvidenceReference(DiagnosisSchemaModel):
     )
 
 
+class EvidenceExcerpt(EvidenceReference):
+    """A verbatim evidence fragment supplied for server-side validation."""
+
+    excerpt: NonEmptyText
+    support_text: NonEmptyText
+
+
 class DiagnosisOption(DiagnosisSchemaModel):
     """One selectable answer for a diagnosis question."""
 
@@ -43,9 +50,9 @@ class DiagnosisQuestion(DiagnosisSchemaModel):
     question_id: NonEmptyText
     text: NonEmptyText
     options: list[DiagnosisOption] = Field(min_length=2, max_length=4)
-    references: list[EvidenceReference] = Field(
+    references: list[EvidenceExcerpt] = Field(
         min_length=1,
-        description="支撑本问题的本轮检索来源标识；真实性由 T2-05 校验。",
+        description="支撑本问题的本轮来源与原文片段；真实性由 T2-05 校验。",
     )
 
     @model_validator(mode="after")
@@ -111,12 +118,19 @@ class DiagnosisAskDecision(DiagnosisSchemaModel):
         return self
 
 
+class DiagnosisRecommendation(DiagnosisSchemaModel):
+    """One actionable recommendation tied to a concrete source excerpt."""
+
+    text: NonEmptyText
+    evidence: list[EvidenceExcerpt] = Field(min_length=1)
+
+
 class DiagnosisAnswerDecision(DiagnosisSchemaModel):
     """Decision with a bounded conclusion and structured troubleshooting steps."""
 
     action: Literal["answer"]
     conclusion: NonEmptyText
-    recommendations: list[NonEmptyText] = Field(min_length=1)
+    recommendations: list[DiagnosisRecommendation] = Field(min_length=1)
     references: list[EvidenceReference] = Field(min_length=1)
     safety_notes: list[NonEmptyText]
 

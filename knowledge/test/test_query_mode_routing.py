@@ -137,6 +137,14 @@ class QueryModeRoutingTestCase(unittest.TestCase):
                     "diagnosis_message": "诊断功能尚未开放",
                 }
             ),
+            "validation": RecordingNode(
+                {
+                    "answer": "",
+                    "diagnosis_status": "validated",
+                    "diagnosis_validated": {"action": "insufficient"},
+                    "diagnosis_validation_passed": True,
+                }
+            ),
         }
         with patch.object(main_graph, "ItemNameConfirmNode", return_value=nodes["item"]), patch.object(
             main_graph, "VectorSearchNode", return_value=nodes["vector"]
@@ -148,6 +156,8 @@ class QueryModeRoutingTestCase(unittest.TestCase):
             main_graph, "DiagnosisDecisionNode", return_value=nodes["diagnosis"]
         ), patch.object(
             main_graph, "DiagnosisPlaceholderNode", return_value=nodes["placeholder"]
+        ), patch.object(
+            main_graph, "DiagnosisValidationNode", return_value=nodes["validation"]
         ):
             graph = main_graph.create_query_graph()
         return graph, nodes
@@ -165,11 +175,11 @@ class QueryModeRoutingTestCase(unittest.TestCase):
         graph, nodes = self._create_recording_graph()
         result = graph.invoke({"mode": "diagnosis", "original_query": "打印失败"})
 
-        for node_name in ("vector", "hyde", "rrf", "rerank", "diagnosis"):
+        for node_name in ("vector", "hyde", "rrf", "rerank", "diagnosis", "validation"):
             self.assertEqual(len(nodes[node_name].calls), 1, node_name)
         self.assertEqual(nodes["web"].calls, [])
         self.assertEqual(nodes["answer"].calls, [])
-        self.assertEqual(result["diagnosis_status"], "candidate")
+        self.assertEqual(result["diagnosis_status"], "validated")
         self.assertEqual(result["answer"], "")
 
     def test_compiled_diagnosis_early_answer_skips_all_searches_and_normal_output(self):
@@ -179,6 +189,7 @@ class QueryModeRoutingTestCase(unittest.TestCase):
         for node_name in ("vector", "hyde", "web", "rrf", "rerank", "answer"):
             self.assertEqual(nodes[node_name].calls, [], node_name)
         self.assertEqual(nodes["diagnosis"].calls, [])
+        self.assertEqual(nodes["validation"].calls, [])
         self.assertEqual(len(nodes["placeholder"].calls), 1)
         self.assertEqual(result["diagnosis_status"], "not_available")
 

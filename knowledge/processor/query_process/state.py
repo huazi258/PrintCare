@@ -26,6 +26,9 @@ class QueryGraphState(TypedDict):
     diagnosis_answer_history: list  # 已答诊断问题历史（T2-03）
     clarification_count: int      # 已持久化的追问轮数
     diagnosis_candidate: dict     # 未经 T2-05 引用验证的候选决策
+    diagnosis_validated: dict     # 已通过 T2-05 校验的内部决策
+    diagnosis_validation_passed: bool  # 候选是否原样通过校验
+    diagnosis_validation_error: dict  # 引用或安全校验拒绝原因
     diagnosis_system_error: dict  # 模型/解析系统失败，不等同资料不足
     diagnosis_status: str         # 诊断内部状态
     diagnosis_message: str        # 诊断内部状态说明
@@ -57,6 +60,9 @@ DEFAULT_STATE: QueryGraphState = {
     "diagnosis_answer_history": [],
     "clarification_count": 0,
     "diagnosis_candidate": {},
+    "diagnosis_validated": {},
+    "diagnosis_validation_passed": False,
+    "diagnosis_validation_error": {},
     "diagnosis_system_error": {},
     "diagnosis_status": "",
     "diagnosis_message": "",

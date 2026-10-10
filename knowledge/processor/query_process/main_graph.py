@@ -25,6 +25,7 @@ from knowledge.processor.query_process.nodes.rerank import RerankNode
 from knowledge.processor.query_process.nodes.web_search_mcp import WebSearchMcpNode
 from knowledge.processor.query_process.nodes.diagnosis_placeholder import DiagnosisPlaceholderNode
 from knowledge.processor.query_process.nodes.diagnosis_decision import DiagnosisDecisionNode
+from knowledge.processor.query_process.nodes.diagnosis_validation import DiagnosisValidationNode
 # 加载环境变量
 load_dotenv()
 
@@ -101,7 +102,7 @@ def create_query_graph() -> CompiledStateGraph:
                 rerank                                     │
                    │                                       │
                    v                                       │
-          answer_output / diagnosis_decision <──────────────┘
+          answer_output / diagnosis_decision → diagnosis_validation
                    │
                    v
                   END
@@ -124,6 +125,7 @@ def create_query_graph() -> CompiledStateGraph:
         "rerank": RerankNode(),
         "answer_output": AnswerOutputNode(),
         "diagnosis_decision": DiagnosisDecisionNode(),
+        "diagnosis_validation": DiagnosisValidationNode(),
         "diagnosis_placeholder": DiagnosisPlaceholderNode(),
     }
 
@@ -170,7 +172,8 @@ def create_query_graph() -> CompiledStateGraph:
         },
     )
     workflow.add_edge("answer_output", END)
-    workflow.add_edge("diagnosis_decision", END)
+    workflow.add_edge("diagnosis_decision", "diagnosis_validation")
+    workflow.add_edge("diagnosis_validation", END)
     workflow.add_edge("diagnosis_placeholder", END)
 
     # 9. 返回可运行的状态
