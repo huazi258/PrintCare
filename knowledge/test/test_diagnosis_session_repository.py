@@ -183,6 +183,11 @@ class DiagnosisSessionRepositoryTestCase(unittest.TestCase):
             {
                 "action": "answer",
                 "conclusion": "资料指向首层调平设置需要检查。",
+                "conclusion_evidence": [{
+                    "source_id": "chunk:101",
+                    "excerpt": "K1 手册检查调平设置。",
+                    "support_text": "检查调平设置",
+                }],
                 "recommendations": [{
                     "text": "按 K1 手册检查调平设置。",
                     "evidence": [{

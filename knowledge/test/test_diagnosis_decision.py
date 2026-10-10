@@ -32,6 +32,11 @@ class CallbackLlm:
             payload = {
                 "action": "answer",
                 "conclusion": "资料与已确认的清洁情况支持继续检查首层调平。",
+                "conclusion_evidence": [{
+                    "source_id": "chunk:101",
+                    "excerpt": "首层粘附异常时，可检查打印平台清洁和首层调平设置。",
+                    "support_text": "首层调平",
+                }],
                 "recommendations": [{
                     "text": "按资料检查首层调平设置。",
                     "evidence": [{
@@ -73,6 +78,11 @@ def answer_payload():
     return {
         "action": "answer",
         "conclusion": "资料指向需要检查首层调平。",
+        "conclusion_evidence": [{
+            "source_id": "chunk:101",
+            "excerpt": "首层粘附异常时，可检查打印平台清洁和首层调平设置。",
+            "support_text": "首层调平",
+        }],
         "recommendations": [{
             "text": "根据 K1 本地资料检查首层调平设置。",
             "evidence": [{

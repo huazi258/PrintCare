@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -33,17 +34,31 @@ class DiagnosisValidationError(ValueError):
         self.code = code
 
 
-_RISKY_OPERATION_MARKERS = (
-    "拆机", "拆卸", "拆开", "打开底板", "带电", "通电", "电源", "电气", "线路", "线束", "主板", "更换", "焊接",
-    "disassemble", "remove cover", "live", "energized", "power supply", "electrical", "wiring", "mainboard", "replace", "solder", "hotend", "heater",
-)
-_SAFETY_MARKERS = (
-    "断电", "关闭电源", "拔掉电源", "等待冷却", "冷却", "警告", "注意", "官方支持", "联系官方",
-    "power off", "unplug", "cool down", "warning", "caution", "official support",
-)
+_RISK_CATEGORIES = {
+    "disassembly": (
+        ("拆机", "拆卸", "拆开", "拆底板", "拆外壳", "拆壳", "拆盖", "开盖", "打开底板", "打开外壳", "打开机箱", "disassemble", "remove cover"),
+        ("断电", "关闭电源", "拔掉电源", "power off", "unplug"),
+    ),
+    "electrical": (
+        ("带电", "通电", "电源", "电气", "线路", "线束", "接线", "端子", "主板", "裸露导线", "短路", "电击", "高压", "市电", "live", "energized", "power supply", "electrical", "wiring", "mainboard"),
+        ("断电", "关闭电源", "拔掉电源", "power off", "unplug"),
+    ),
+    "thermal": (
+        ("热端", "喷嘴", "喷头", "热床", "高温", "加热", "加热器", "加热棒", "hotend", "nozzle", "heater bed", "heater", "high temperature"),
+        ("等待冷却", "完全冷却", "冷却后", "低于", "降温", "cool down", "cooled down", "temperature below"),
+    ),
+    "replacement": (
+        ("更换", "焊接", "replace", "solder"),
+        ("断电", "关闭电源", "拔掉电源", "等待冷却", "完全冷却", "power off", "unplug", "cool down", "cooled down"),
+    ),
+}
 _REPAIR_OPERATION_MARKERS = (
     "检查", "清洁", "调整", "校准", "设置", "更换", "拆", "维修", "修复", "安装", "加热",
     "inspect", "clean", "adjust", "calibrate", "replace", "repair", "install", "heat",
+)
+_GENERIC_SUPPORT_TERMS = (
+    "检查", "设备", "打印机", "机器", "操作", "异常", "问题", "情况", "建议", "相关", "进行", "用户", "请", "需要", "可以",
+    "check", "device", "printer", "machine", "operation", "issue", "problem", "please", "should",
 )
 
 
@@ -109,14 +124,14 @@ def validate_diagnosis_candidate(
         global_sources = {reference.source_id for reference in candidate.references}
         if not global_sources or not global_sources.issubset(evidence_by_source):
             raise DiagnosisValidationError("invalid_reference", "诊断结论包含未命中的来源标识")
+        _validate_evidence_links(candidate.conclusion_evidence, candidate.conclusion, evidence_by_source)
+        if not {item.source_id for item in candidate.conclusion_evidence}.issubset(global_sources):
+            raise DiagnosisValidationError("unlinked_conclusion", "结论证据未列入结论引用")
         for recommendation in candidate.recommendations:
             _validate_evidence_links(recommendation.evidence, recommendation.text, evidence_by_source)
             if not {item.source_id for item in recommendation.evidence}.issubset(global_sources):
                 raise DiagnosisValidationError("unlinked_recommendation", "建议证据未列入结论引用")
-            if _is_risky_operation(recommendation.text) and not any(
-                _has_safety_boundary(item.excerpt) for item in recommendation.evidence
-            ):
-                raise DiagnosisValidationError("unsafe_operation", "高风险操作缺少资料中的安全边界")
+            _validate_risky_recommendation(recommendation.text, recommendation.evidence)
         return candidate
     if isinstance(candidate, DiagnosisInsufficientDecision):
         if any(_is_risky_operation(step) for step in candidate.next_steps):
@@ -142,6 +157,8 @@ def _validate_evidence_links(
         normalized_support = _normalise(reference.support_text)
         if len(normalized_support) < 3:
             raise DiagnosisValidationError("weak_support", "支持片段过短，不能建立可追溯关系")
+        if _is_generic_support(normalized_support):
+            raise DiagnosisValidationError("weak_support", "支持片段过于通用，不能建立可追溯关系")
         if normalized_support not in _normalise(reference.excerpt):
             raise DiagnosisValidationError("invalid_support", "支持片段不在声明的原文片段中")
         if normalized_support not in normalized_subject:
@@ -153,19 +170,56 @@ def _conflicts_with_device(value: Any, expected: str) -> bool:
     return bool(cleaned) and cleaned != expected
 
 
+def _validate_risky_recommendation(text: str, evidence: list[EvidenceExcerpt]) -> None:
+    normalized_text = _normalise(text)
+    for operation_markers, safety_markers in _RISK_CATEGORIES.values():
+        matched_markers = [marker for marker in operation_markers if marker.casefold() in normalized_text]
+        if not matched_markers:
+            continue
+        if not any(
+            any(marker.casefold() in _normalise(item.support_text) for marker in matched_markers)
+            and _has_operation_safety_pair(item.excerpt, matched_markers, safety_markers)
+            for item in evidence
+        ):
+            raise DiagnosisValidationError(
+                "unsafe_operation",
+                "高风险操作缺少同一原文片段中的具体操作依据和适用安全条件",
+            )
+
+
+def _has_operation_safety_pair(
+    excerpt: str,
+    operation_markers: list[str],
+    safety_markers: tuple[str, ...],
+) -> bool:
+    for segment in re.split(r"[。！？!?；;\r\n]+", excerpt):
+        normalized_segment = _normalise(segment)
+        if (
+            any(marker.casefold() in normalized_segment for marker in operation_markers)
+            and any(marker.casefold() in normalized_segment for marker in safety_markers)
+        ):
+            return True
+    return False
+
+
 def _is_risky_operation(text: str) -> bool:
     normalized = _normalise(text)
-    return any(marker.casefold() in normalized for marker in _RISKY_OPERATION_MARKERS)
-
-
-def _has_safety_boundary(text: str) -> bool:
-    normalized = _normalise(text)
-    return any(marker.casefold() in normalized for marker in _SAFETY_MARKERS)
+    return any(
+        any(marker.casefold() in normalized for marker in operation_markers)
+        for operation_markers, _ in _RISK_CATEGORIES.values()
+    )
 
 
 def _is_repair_operation(text: str) -> bool:
     normalized = _normalise(text)
     return any(marker.casefold() in normalized for marker in _REPAIR_OPERATION_MARKERS)
+
+
+def _is_generic_support(normalized_support: str) -> bool:
+    remainder = normalized_support
+    for term in _GENERIC_SUPPORT_TERMS:
+        remainder = remainder.replace(term.casefold(), "")
+    return len(remainder) < 2
 
 
 def _normalise(value: str) -> str:

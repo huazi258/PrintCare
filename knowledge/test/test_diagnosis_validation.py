@@ -48,6 +48,7 @@ def answer_candidate(text="请检查首层调平设置。", evidence=None):
     return {
         "action": "answer",
         "conclusion": "资料指向首层调平设置需要检查。",
+        "conclusion_evidence": [evidence_excerpt("首层调平设置")],
         "recommendations": [{
             "text": text,
             "evidence": evidence or [evidence_excerpt("检查首层调平设置")],
@@ -126,6 +127,24 @@ class DiagnosisValidationTestCase(unittest.TestCase):
         self.assertEqual(result["diagnosis_status"], "validation_rejected")
         self.assertEqual(result["diagnosis_validation_error"]["code"], "unsupported_content")
 
+    def test_answer_conclusion_requires_traceable_source_support(self):
+        candidate = answer_candidate()
+        candidate["conclusion"] = "资料指向需要更换主板。"
+
+        result = DiagnosisValidationNode().process(self._state(candidate))
+
+        self.assertEqual(result["diagnosis_status"], "validation_rejected")
+        self.assertEqual(result["diagnosis_validation_error"]["code"], "unsupported_content")
+
+    def test_answer_conclusion_evidence_is_required(self):
+        candidate = answer_candidate()
+        del candidate["conclusion_evidence"]
+
+        result = DiagnosisValidationNode().process(self._state(candidate))
+
+        self.assertEqual(result["diagnosis_status"], "validation_rejected")
+        self.assertEqual(result["diagnosis_validation_error"]["code"], "invalid_candidate")
+
     def test_high_risk_operation_without_documented_safety_boundary_is_blocked(self):
         candidate = answer_candidate(
             "请拆卸底板检查首层调平设置。",
@@ -136,6 +155,77 @@ class DiagnosisValidationTestCase(unittest.TestCase):
 
         self.assertEqual(result["diagnosis_status"], "validation_rejected")
         self.assertEqual(result["diagnosis_validation_error"]["code"], "unsafe_operation")
+
+    def test_high_risk_operation_with_operation_specific_safety_evidence_passes(self):
+        excerpt = "关闭电源并等待设备冷却后，才可拆卸底板检查线束。"
+        candidate = answer_candidate(
+            "关闭电源并等待设备冷却后，拆卸底板检查线束。",
+            [evidence_excerpt("拆卸底板检查线束", excerpt)],
+        )
+
+        result = DiagnosisValidationNode().process(self._state(candidate))
+
+        self.assertEqual(result["diagnosis_status"], "validated")
+
+    def test_irrelevant_warning_does_not_authorize_risky_operation(self):
+        excerpt = "断电后请阅读安全说明。拆卸底板检查线束。"
+        document = {**K1_DOCUMENT, "content": excerpt}
+        candidate = {
+            "action": "answer",
+            "conclusion": "资料指向拆卸底板检查线束。",
+            "conclusion_evidence": [evidence_excerpt("拆卸底板检查线束", excerpt)],
+            "recommendations": [{
+                "text": "请拆卸底板检查线束。",
+                "evidence": [evidence_excerpt("拆卸底板检查线束", excerpt)],
+            }],
+            "references": [{"source_id": "chunk:101"}],
+            "safety_notes": ["若无法确认安全条件，请联系官方支持。"],
+        }
+
+        result = DiagnosisValidationNode().process(self._state(candidate, [document]))
+
+        self.assertEqual(result["diagnosis_status"], "validation_rejected")
+        self.assertEqual(result["diagnosis_validation_error"]["code"], "unsafe_operation")
+
+    def test_common_chinese_electrical_and_disassembly_terms_require_conditions(self):
+        excerpt = "警告：打开外壳后带电检查主板。"
+        document = {**K1_DOCUMENT, "content": excerpt}
+        candidate = {
+            "action": "answer",
+            "conclusion": "资料指向打开外壳后带电检查主板。",
+            "conclusion_evidence": [evidence_excerpt("打开外壳后带电检查主板", excerpt)],
+            "recommendations": [{
+                "text": "请打开外壳后带电检查主板。",
+                "evidence": [evidence_excerpt("打开外壳后带电检查主板", excerpt)],
+            }],
+            "references": [{"source_id": "chunk:101"}],
+            "safety_notes": ["无法确认安全条件时停止操作。"],
+        }
+
+        result = DiagnosisValidationNode().process(self._state(candidate, [document]))
+
+        self.assertEqual(result["diagnosis_status"], "validation_rejected")
+        self.assertEqual(result["diagnosis_validation_error"]["code"], "unsafe_operation")
+
+    def test_generic_short_support_cannot_authorize_an_answer(self):
+        excerpt = "请检查设备。"
+        document = {**K1_DOCUMENT, "content": excerpt}
+        candidate = {
+            "action": "answer",
+            "conclusion": "资料建议检查设备。",
+            "conclusion_evidence": [evidence_excerpt("检查设备", excerpt)],
+            "recommendations": [{
+                "text": "请检查设备。",
+                "evidence": [evidence_excerpt("检查设备", excerpt)],
+            }],
+            "references": [{"source_id": "chunk:101"}],
+            "safety_notes": ["如无法确认，请联系官方支持。"],
+        }
+
+        result = DiagnosisValidationNode().process(self._state(candidate, [document]))
+
+        self.assertEqual(result["diagnosis_status"], "validation_rejected")
+        self.assertEqual(result["diagnosis_validation_error"]["code"], "weak_support")
 
     def test_insufficient_without_evidence_is_valid_but_repair_step_is_not(self):
         safe = {

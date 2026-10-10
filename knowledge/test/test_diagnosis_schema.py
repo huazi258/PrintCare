@@ -56,6 +56,7 @@ class DiagnosisSchemaTestCase(unittest.TestCase):
         return {
             "action": "answer",
             "conclusion": "现有资料指向首层调平设置需要检查。",
+            "conclusion_evidence": [cls._evidence_excerpt()],
             "recommendations": [{
                 "text": "根据设备手册检查首层调平设置。",
                 "evidence": [cls._evidence_excerpt()],
@@ -142,6 +143,7 @@ class DiagnosisSchemaTestCase(unittest.TestCase):
     def test_answer_requires_conclusion_recommendations_references_and_safety_notes(self):
         for missing_field, invalid_value in (
             ("conclusion", None),
+            ("conclusion_evidence", []),
             ("recommendations", []),
             ("references", []),
             ("safety_notes", None),

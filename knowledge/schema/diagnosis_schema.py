@@ -130,6 +130,7 @@ class DiagnosisAnswerDecision(DiagnosisSchemaModel):
 
     action: Literal["answer"]
     conclusion: NonEmptyText
+    conclusion_evidence: list[EvidenceExcerpt] = Field(min_length=1)
     recommendations: list[DiagnosisRecommendation] = Field(min_length=1)
     references: list[EvidenceReference] = Field(min_length=1)
     safety_notes: list[NonEmptyText]
