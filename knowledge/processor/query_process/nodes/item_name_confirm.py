@@ -265,6 +265,13 @@ class ItemNameConfirmNode(BaseNode):
         self._item_name_aligner = ItemNameAligner()
 
     def process(self, state: QueryGraphState) -> QueryGraphState:
+        # T2-03: the service has already assembled a server-owned full
+        # diagnosis context into rewritten_query.  Do not let the generic QA
+        # item-name/LLM rewrite reduce it to an isolated answer option.
+        if state.get("mode") == "diagnosis" and state.get("rewritten_query"):
+            state["history"] = []
+            return state
+
         # 1.获取历史
         # 1.1. 获取原始问题
         original_query = state.get("original_query")

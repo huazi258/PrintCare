@@ -21,6 +21,9 @@ class QueryGraphState(TypedDict):
     device_id: str                # 服务端确认的设备稳定标识
     device_model: str             # 服务端确认的设备显示名
     mode: str                     # qa / diagnosis
+    diagnosis_id: str             # MongoDB 诊断会话标识（T2-03）
+    diagnosis_facts: list         # 已确认诊断事实（T2-03）
+    diagnosis_answer_history: list  # 已答诊断问题历史（T2-03）
     diagnosis_status: str         # 诊断占位状态（T1-03）
     diagnosis_message: str        # 诊断占位说明（T1-03）
     embedding_chunks: list        # 向量检索结果
@@ -46,6 +49,9 @@ DEFAULT_STATE: QueryGraphState = {
     "device_id": "",
     "device_model": "",
     "mode": "qa",
+    "diagnosis_id": "",
+    "diagnosis_facts": [],
+    "diagnosis_answer_history": [],
     "diagnosis_status": "",
     "diagnosis_message": "",
     "embedding_chunks": [],

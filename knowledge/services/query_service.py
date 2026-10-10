@@ -4,6 +4,8 @@ from typing import List, Dict, Any
 
 from knowledge.core.devices import resolve_supported_device
 from knowledge.processor.query_process.main_graph import query_app
+from knowledge.services.diagnosis_context import DiagnosisContextAssembler
+from knowledge.utils.diagnosis_session_util import DiagnosisSessionRepository
 from knowledge.utils.mongo_history_util import clear_history, get_recent_messages
 from knowledge.utils.task_util import create_task, get_task_result, set_task_result, update_task_status, \
     TASK_STATUS_COMPLETED, TASK_STATUS_FAILED, TASK_STATUS_PROCESSING
@@ -14,6 +16,41 @@ SUPPORTED_QUERY_MODES = {"qa", "diagnosis"}
 
 
 class QueryService:
+
+    def build_diagnosis_graph_state(
+        self,
+        diagnosis_id: str,
+        visitor_id: str,
+        task_id: str,
+        is_stream: bool,
+        repository: DiagnosisSessionRepository | None = None,
+    ) -> Dict[str, Any]:
+        """Build the future diagnosis graph input from the persistent session.
+
+        This intentionally does not invoke the graph or expose an API.  The
+        fail-closed diagnosis HTTP route remains in place until T2-06.
+        """
+        session_repository = repository or DiagnosisSessionRepository()
+        session = session_repository.get_session(diagnosis_id, visitor_id)
+        if session is None:
+            raise ValueError("诊断会话不存在或不属于当前访客")
+
+        context = DiagnosisContextAssembler().assemble(session)
+        device = resolve_supported_device(context.device_id)
+        return {
+            "original_query": context.original_problem,
+            "rewritten_query": context.rewritten_query,
+            "diagnosis_id": diagnosis_id,
+            "diagnosis_facts": context.confirmed_facts,
+            "diagnosis_answer_history": context.answer_history,
+            "session_id": "",
+            "task_id": task_id,
+            "is_stream": is_stream,
+            "device_id": device.device_id,
+            "device_model": device.device_model,
+            "item_names": [device.item_name],
+            "mode": "diagnosis",
+        }
 
     def run_query_graph(self, session_id, task_id, user_query: str, is_stream: bool, device_id=None, mode="qa"):
         """执行LangGraph 查询流程
