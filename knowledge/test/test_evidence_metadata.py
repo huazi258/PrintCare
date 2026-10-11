@@ -1,3 +1,4 @@
+import io
 import unittest
 from unittest.mock import Mock, patch
 
@@ -100,6 +101,24 @@ class EvidenceMetadataTestCase(unittest.TestCase):
         for field in ("chunk_id", "file_title", "item_name", "device_id", "device_model"):
             self.assertEqual(evidence[field], K1_CHUNK[field])
         self.assertEqual(evidence["score"], 0.88)
+
+    def test_rerank_does_not_fail_when_stdout_cannot_encode_manual_text(self):
+        class Reranker:
+            @staticmethod
+            def compute_score(sentence_pairs):
+                return [1.0] * len(sentence_pairs)
+
+        node = RerankNode()
+        documents = [{"content": "含有 ⽰ 字符的 K1 手册片段"}]
+        ascii_stdout = io.TextIOWrapper(io.BytesIO(), encoding="ascii")
+        with patch(
+            "knowledge.processor.query_process.nodes.rerank.AIClients.get_bge_m3_rerank_client",
+            return_value=Reranker(),
+        ), patch("sys.stdout", ascii_stdout):
+            result = node._rerank_merged_docs("K1", documents)
+
+        self.assertEqual(len(result), 1)
+        self.assertIsNotNone(result[0]["score"])
 
     def test_web_evidence_uses_its_actual_url_as_source_id(self):
         node = RerankNode()

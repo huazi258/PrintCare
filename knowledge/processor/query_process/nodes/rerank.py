@@ -156,19 +156,12 @@ class RerankNode(BaseNode):
             # 单文档防护    只有一个文档，返回的可能是float或int值。而不是 list ;   这里如果是一个文档的话，也封装成List。保证后续逻辑处理的类型一致.
             if isinstance(rerank_scores, (float, int)):
                 rerank_scores = [rerank_scores]
-            print(rerank_scores)  # [5.06640625, -4.7421875, 3.962890625, -9.4765625]
-
-            # 没做归一化处理
-            score_docs1 = [{**doc, "score": score} for doc, score in zip(merged_multi_docs, rerank_scores)]
-            print(f"没做归一化处理:{score_docs1}")
 
             # 归一化处理
             score_docs = [{**doc, "score": self._sigmoid(score)} for doc, score in
                           zip(merged_multi_docs, rerank_scores)]
-            print(f"归一化处理:{score_docs}")
 
             sorted_score_docs = sorted(score_docs, key=lambda x: x["score"], reverse=True)
-            print(f"排序后结果返回:{sorted_score_docs}")
 
             return sorted_score_docs
         except Exception as e:
