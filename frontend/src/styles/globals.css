@@ -45,3 +45,38 @@ button,
 a {
   -webkit-tap-highlight-color: transparent;
 }
+
+.qa-markdown {
+  color: var(--foreground);
+  font-size: 0.95rem;
+  line-height: 1.8;
+}
+
+.qa-markdown > :first-child {
+  margin-top: 0;
+}
+
+.qa-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.qa-markdown h2,
+.qa-markdown h3 {
+  margin: 1.8rem 0 0.7rem;
+  color: var(--foreground);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.qa-markdown h2 { font-size: 1.2rem; }
+.qa-markdown h3 { font-size: 1rem; }
+.qa-markdown p { margin: 0.75rem 0; }
+.qa-markdown ul,
+.qa-markdown ol { margin: 0.75rem 0; padding-left: 1.35rem; }
+.qa-markdown ul { list-style: disc; }
+.qa-markdown ol { list-style: decimal; }
+.qa-markdown li + li { margin-top: 0.35rem; }
+.qa-markdown a { color: var(--primary); text-decoration: underline; text-underline-offset: 0.2rem; }
+.qa-markdown :not(pre) > code { border-radius: 0.25rem; background: var(--muted); padding: 0.1rem 0.3rem; font-size: 0.85em; }
+.qa-markdown pre { margin: 1rem 0; overflow-x: auto; border-radius: 0.6rem; background: var(--foreground); padding: 1rem; color: var(--primary-foreground); }
+.qa-markdown pre code { font-size: 0.82rem; line-height: 1.65; }
