@@ -78,10 +78,21 @@ class InferenceClaimResult:
     session: dict[str, Any]
     idempotent: bool
     running: bool
+    active_task_id: Optional[str] = None
 
 
 def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    """Return UTC in PyMongo's default (naive) datetime representation."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _as_utc_naive(value: Any) -> Optional[datetime]:
+    """Normalize legacy aware values and PyMongo's naive values for comparison."""
+    if not isinstance(value, datetime):
+        return None
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def _public_document(document: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
@@ -230,6 +241,7 @@ class DiagnosisSessionRepository:
         expected_revision: int,
         *,
         lease_seconds: int = 300,
+        task_id: Optional[str] = None,
     ) -> InferenceClaimResult:
         """Acquire one revision-scoped graph execution lease atomically.
 
@@ -256,6 +268,8 @@ class DiagnosisSessionRepository:
             "started_at": now,
             "expires_at": now + timedelta(seconds=lease_seconds),
         }
+        if task_id is not None:
+            lease["task_id"] = task_id
         updated = self._find_one_and_update(
             {
                 "diagnosis_id": diagnosis_id,
@@ -283,8 +297,8 @@ class DiagnosisSessionRepository:
             )
         active = latest.get("execution")
         if isinstance(active, dict):
-            expires_at = active.get("expires_at")
-            if isinstance(expires_at, datetime) and expires_at <= now:
+            expires_at = _as_utc_naive(active.get("expires_at"))
+            if expires_at is not None and expires_at <= now:
                 reclaimed = self._find_one_and_update(
                     {
                         "diagnosis_id": diagnosis_id,
@@ -307,6 +321,7 @@ class DiagnosisSessionRepository:
                     session=_public_document(latest),  # type: ignore[arg-type]
                     idempotent=False,
                     running=True,
+                    active_task_id=active.get("task_id"),
                 )
             raise DiagnosisSessionConflictError("诊断会话已有正在执行的推理任务")
         self._raise_after_failed_write(diagnosis_id, visitor_id, expected_revision)

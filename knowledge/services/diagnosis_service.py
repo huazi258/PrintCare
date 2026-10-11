@@ -23,6 +23,7 @@ from knowledge.utils.diagnosis_session_util import (
 from knowledge.utils.sse_util import SSEEvent, close_sse_stream, push_sse_event
 from knowledge.utils.task_util import (
     TASK_STATUS_COMPLETED,
+    TASK_STATUS_DEDUPLICATED,
     TASK_STATUS_FAILED,
     TASK_STATUS_PROCESSING,
     set_task_result,
@@ -43,6 +44,7 @@ class DiagnosisExecutionResult:
     decision: Optional[dict[str, Any]]
     idempotent: bool
     running: bool = False
+    active_task_id: Optional[str] = None
 
 
 class DiagnosisService:
@@ -83,7 +85,6 @@ class DiagnosisService:
     ) -> DiagnosisExecutionResult:
         """Execute one graph turn and emit only persisted diagnosis SSE events."""
         update_task_status(task_id, TASK_STATUS_PROCESSING)
-        self._push_progress(task_id, is_stream, "retrieval", "正在检索 K1 本地资料")
         try:
             result = self._run_turn(
                 diagnosis_id=diagnosis_id,
@@ -96,21 +97,23 @@ class DiagnosisService:
             payload = self.session_payload(result.session)
             if result.running:
                 payload["processing"] = True
+                payload["active_task_id"] = result.active_task_id
             set_task_result(task_id, "diagnosis", payload)
             if is_stream and result.decision is not None:
                 push_sse_event(task_id, SSEEvent.DIAGNOSIS, payload)
             update_task_status(
-                task_id, TASK_STATUS_PROCESSING if result.running else TASK_STATUS_COMPLETED
+                task_id, TASK_STATUS_DEDUPLICATED if result.running else TASK_STATUS_COMPLETED
             )
             if is_stream:
                 push_sse_event(
                     task_id,
                     SSEEvent.FINAL,
                     {
-                        "status": "processing" if result.running else "completed",
+                        "status": "deduplicated" if result.running else "completed",
                         "diagnosis_id": diagnosis_id,
                         "idempotent": result.idempotent,
                         "processing": result.running,
+                        "active_task_id": result.active_task_id,
                     },
                 )
             return result
@@ -151,7 +154,11 @@ class DiagnosisService:
         is_stream: bool,
     ) -> DiagnosisExecutionResult:
         claim = self._repository.claim_inference(
-            diagnosis_id, visitor_id, inference_request_id, expected_revision
+            diagnosis_id,
+            visitor_id,
+            inference_request_id,
+            expected_revision,
+            task_id=task_id,
         )
         if claim.idempotent:
             return DiagnosisExecutionResult(
@@ -165,9 +172,11 @@ class DiagnosisService:
                 decision=None,
                 idempotent=False,
                 running=True,
+                active_task_id=claim.active_task_id,
             )
 
         try:
+            self._push_progress(task_id, is_stream, "retrieval", "正在检索 K1 本地资料")
             self._push_progress(task_id, is_stream, "decision", "正在生成诊断决策")
             state = self._query_service.build_diagnosis_graph_state(
                 diagnosis_id,

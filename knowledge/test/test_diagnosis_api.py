@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 from knowledge.api.query_router import create_app
 from knowledge.core.deps import get_diagnosis_service, get_query_service
+from knowledge.schema.diagnosis_schema import DiagnosisStartRequest
 from knowledge.services.diagnosis_service import DiagnosisService
 from knowledge.test.test_diagnosis_session_repository import FakeDiagnosisCollection
 from knowledge.utils.diagnosis_session_util import DiagnosisSessionRepository
@@ -289,6 +290,52 @@ class DiagnosisApiTestCase(unittest.TestCase):
         self.assertEqual(retried.status_code, 200)
         self.assertEqual(retried.json()["decision"]["action"], "ask")
         self.assertEqual(self.query_service.graph_calls, 2)
+
+    def test_first_visitor_keeps_cookie_after_model_failure_and_retries_same_session(self):
+        self.query_service.outcomes = [RuntimeError("model timeout"), graph_result(ASK_DECISION)]
+        payload = self._start_payload(request_id="first-visitor-retry")
+
+        failed = self.client.post("/query", json=payload)
+        self.assertEqual(failed.status_code, 503)
+        visitor_id = self.client.cookies.get("printcare_visitor_id")
+        self.assertTrue(visitor_id)
+        self.assertEqual(len(self.repository.list_sessions(visitor_id)), 1)
+
+        retried = self.client.post("/query", json=payload)
+        self.assertEqual(retried.status_code, 200)
+        self.assertEqual(retried.json()["decision"]["action"], "ask")
+        self.assertEqual(len(self.repository.list_sessions(visitor_id)), 1)
+        self.assertEqual(self.query_service.graph_calls, 2)
+
+    def test_duplicate_running_request_is_deduplicated_to_active_task(self):
+        session, _ = self.diagnosis_service.start_session(
+            "visitor-a",
+            DiagnosisStartRequest(
+                device_id="creality-k1", original_problem="首层无法粘附打印平台"
+            ),
+            "running-start",
+        )
+        self.repository.claim_inference(
+            session["diagnosis_id"],
+            "visitor-a",
+            "start:running-start",
+            expected_revision=0,
+            task_id="active-task",
+        )
+
+        duplicate = self.client.post(
+            "/query", json=self._start_payload(request_id="running-start"), headers=self.headers
+        )
+        self.assertEqual(duplicate.status_code, 200)
+        self.assertTrue(duplicate.json()["processing"])
+        self.assertEqual(duplicate.json()["active_task_id"], "active-task")
+        self.assertEqual(self.query_service.graph_calls, 0)
+        task_status = self.client.get(
+            f"/status/{duplicate.json()['task_id']}", headers=self.headers
+        )
+        self.assertEqual(task_status.status_code, 200)
+        self.assertEqual(task_status.json()["status"], "deduplicated")
+        self.assertEqual(task_status.json()["diagnosis"]["active_task_id"], "active-task")
 
     def test_visitors_cannot_read_other_sessions_or_diagnosis_tasks(self):
         started = self._start()

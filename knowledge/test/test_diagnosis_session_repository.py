@@ -2,6 +2,7 @@ import copy
 import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 from knowledge.schema.diagnosis_schema import (
@@ -403,6 +404,37 @@ class DiagnosisSessionRepositoryTestCase(unittest.TestCase):
         self.assertFalse(first.idempotent)
         self.assertTrue(same_request.running)
         self.assertFalse(retry.running)
+
+    def test_naive_mongo_lease_times_support_running_and_expired_recovery(self):
+        """PyMongo reads default to naive datetimes, which must not break leases."""
+        created = self._create()
+        first = self.repository.claim_inference(
+            created["diagnosis_id"], "visitor-a", "infer-1", expected_revision=0, task_id="task-1"
+        )
+        duplicate = self.repository.claim_inference(
+            created["diagnosis_id"], "visitor-a", "infer-1", expected_revision=0, task_id="task-2"
+        )
+        self.assertTrue(duplicate.running)
+        self.assertEqual(duplicate.active_task_id, "task-1")
+
+        self.collection.documents[0]["execution"]["expires_at"] = datetime.utcnow() - timedelta(seconds=1)
+
+        def reclaim(request_id):
+            try:
+                return self.repository.claim_inference(
+                    created["diagnosis_id"], "visitor-a", request_id, expected_revision=0
+                )
+            except DiagnosisSessionConflictError:
+                return "conflict"
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(reclaim, ["recover-1", "recover-2"]))
+
+        recovered = [result for result in results if result != "conflict"]
+        self.assertFalse(first.running)
+        self.assertEqual(len(recovered), 1)
+        self.assertEqual(sum(result == "conflict" for result in results), 1)
+        self.assertIn(recovered[0].session["execution"]["request_id"], {"recover-1", "recover-2"})
 
     def test_question_round_write_rejects_a_fourth_round(self):
         created = self._create()

@@ -21,6 +21,7 @@ TASK_STATUS_PENDING = "pending"  # 任务已创建，等待执行
 TASK_STATUS_PROCESSING = "processing"  # 任务处理中
 TASK_STATUS_COMPLETED = "completed"  # 任务完成
 TASK_STATUS_FAILED = "failed"  # 任务失败
+TASK_STATUS_DEDUPLICATED = "deduplicated"  # 重复请求关联至已有运行任务
 
 _NODE_NAME_TO_CN: Dict[str, str] = {
     "upload_file": "上传文件",

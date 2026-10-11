@@ -52,8 +52,10 @@ def _visitor_id(request: Request, *, allow_create: bool) -> tuple[str, bool]:
     raise HTTPException(status_code=422, detail="缺少匿名访客标识")
 
 
-def _visitor_response(payload: dict, visitor_id: str, created: bool) -> JSONResponse:
-    response = JSONResponse(content=jsonable_encoder(payload))
+def _visitor_response(
+    payload: dict, visitor_id: str, created: bool, *, status_code: int = 200
+) -> JSONResponse:
+    response = JSONResponse(content=jsonable_encoder(payload), status_code=status_code)
     if created:
         response.set_cookie(
             _VISITOR_COOKIE,
@@ -164,7 +166,13 @@ def register_routers(app: FastAPI):
                 expected_revision = session["revision"]
                 task_id = service.generate_task_id(visitor_id=visitor_id, mode="diagnosis")
             except Exception as exc:
-                raise _diagnosis_http_error(exc) from exc
+                error = _diagnosis_http_error(exc)
+                return _visitor_response(
+                    {"detail": error.detail},
+                    visitor_id,
+                    created_visitor,
+                    status_code=error.status_code,
+                )
 
             task_kwargs = {
                 "diagnosis_id": session["diagnosis_id"],
@@ -194,11 +202,18 @@ def register_routers(app: FastAPI):
                     None, lambda: diagnosis_service.run_task(**task_kwargs)
                 )
             except Exception as exc:
-                raise _diagnosis_http_error(exc) from exc
+                error = _diagnosis_http_error(exc)
+                return _visitor_response(
+                    {"detail": error.detail},
+                    visitor_id,
+                    created_visitor,
+                    status_code=error.status_code,
+                )
             response_payload = diagnosis_service.session_payload(result.session)
             response_payload.update({"task_id": task_id, "idempotent": result.idempotent})
             if result.running:
                 response_payload["processing"] = True
+                response_payload["active_task_id"] = result.active_task_id
             return _visitor_response(response_payload, visitor_id, created_visitor)
 
         # 1.获取session_id
