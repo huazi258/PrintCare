@@ -73,12 +73,11 @@ class QueryModeRoutingTestCase(unittest.TestCase):
         self.assertEqual(self.service.created_task_ids, [])
         self.assertEqual(self.service.run_calls, [])
 
-    def test_diagnosis_api_fails_closed_before_task_or_sse_queue(self):
+    def test_diagnosis_rejects_incomplete_contract_before_task_or_sse_queue(self):
         with patch("knowledge.api.query_router.create_sse_queue") as create_sse_queue:
             response = self.client.post("/query", json=self._payload(mode="diagnosis", is_stream=True))
 
-        self.assertEqual(response.status_code, 501)
-        self.assertIn("尚未开放", response.json()["detail"])
+        self.assertEqual(response.status_code, 422)
         self.assertEqual(self.service.created_task_ids, [])
         self.assertEqual(self.service.run_calls, [])
         create_sse_queue.assert_not_called()

@@ -4,12 +4,18 @@ import logging
 import queue
 from typing import Dict, Any, Optional, AsyncGenerator
 from fastapi import Request
+from fastapi.encoders import jsonable_encoder
 
 
 class SSEEvent:
     PROGRESS = "progress"  # 任务节点进度
     DELTA = "delta"  # LLM 流式输出增量
     FINAL = "final"  # 最终完整答案
+    DIAGNOSIS = "diagnosis"  # 已校验且已持久化的结构化诊断
+    ERROR = "error"  # 明确的任务失败状态
+
+
+_CLOSE_EVENT = "__close__"
 
 
 # 全局 SSE 任务队列存储
@@ -40,7 +46,7 @@ def remove_sse_queue(task_id: str):
 
 def _sse_pack(event: str, data: Dict[str, Any]) -> str:
     """打包 SSE 消息格式"""
-    payload = json.dumps(data, ensure_ascii=False)
+    payload = json.dumps(jsonable_encoder(data), ensure_ascii=False)
     return f"event: {event}\ndata: {payload}\n\n"
 
 
@@ -55,6 +61,13 @@ def push_sse_event(task_id: str, event: str, data: Dict[str, Any]):
     if stream_queue:
         # 3. 将事件推送到队列
         stream_queue.put({"event": event, "data": data})
+
+
+def close_sse_stream(task_id: str):
+    """Signal normal completion after the final event has been queued."""
+    stream_queue = get_sse_queue(task_id)
+    if stream_queue:
+        stream_queue.put({"event": _CLOSE_EVENT, "data": {}})
 
 
 async def sse_generator(task_id: str, request: Request) -> AsyncGenerator:
@@ -92,6 +105,8 @@ async def sse_generator(task_id: str, request: Request) -> AsyncGenerator:
                 msg = await loop.run_in_executor(None, sse_queue.get, True, 1)
                 # 3.3 获取事件类型
                 event_type = msg.get('event')
+                if event_type == _CLOSE_EVENT:
+                    return
                 # 3.4 获取事件数据
                 event_data = msg.get('data')
                 # 3.5 打包返回

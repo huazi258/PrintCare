@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable, Optional
 from uuid import uuid4
 
@@ -34,7 +34,7 @@ TERMINAL_STATUSES = frozenset({"resolved", "insufficient", "ended"})
 
 _ALLOWED_STATUS_TRANSITIONS = {
     "in_progress": frozenset({"pending_verification", "insufficient", "ended"}),
-    "pending_verification": frozenset({"resolved", "unresolved"}),
+    "pending_verification": frozenset({"resolved", "unresolved", "ended"}),
     "unresolved": frozenset({"in_progress", "ended"}),
     "resolved": frozenset(),
     "insufficient": frozenset(),
@@ -71,6 +71,15 @@ class AnswerSubmissionResult:
     request_record: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class InferenceClaimResult:
+    """Outcome of atomically acquiring (or recognising) an inference lease."""
+
+    session: dict[str, Any]
+    idempotent: bool
+    running: bool
+
+
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -105,6 +114,12 @@ class DiagnosisSessionRepository:
                 [("visitor_id", ASCENDING), ("updated_at", DESCENDING)],
                 name="visitor_updated_at",
             )
+            self._collection.create_index(
+                [("visitor_id", ASCENDING), ("creation_request_id", ASCENDING)],
+                name="visitor_creation_request_unique",
+                unique=True,
+                partialFilterExpression={"creation_request_id": {"$type": "string"}},
+            )
         except Exception as exc:
             raise DiagnosisSessionStorageError("无法创建诊断会话索引") from exc
 
@@ -114,6 +129,7 @@ class DiagnosisSessionRepository:
         request: DiagnosisStartRequest,
         *,
         diagnosis_id: Optional[str] = None,
+        creation_request_id: Optional[str] = None,
     ) -> dict[str, Any]:
         """Create one visitor-owned, in-progress diagnosis session."""
         self._require_nonblank("visitor_id", visitor_id)
@@ -132,14 +148,20 @@ class DiagnosisSessionRepository:
             "rounds": [],
             "clarification_count": 0,
             "result": None,
+            "result_metadata": None,
             "feedback": None,
             "revision": 0,
+            # A Mongo-backed lease prevents two callers from running the same
+            # graph concurrently.  It is intentionally not a diagnosis result.
+            "execution": None,
             # Keep every processed client submission, not only the latest ID:
             # delayed retries must remain idempotent after newer rounds finish.
             "processed_requests": [],
             "created_at": now,
             "updated_at": now,
         }
+        if creation_request_id is not None:
+            document["creation_request_id"] = creation_request_id
         try:
             self._collection.insert_one(document)
         except DuplicateKeyError as exc:
@@ -147,6 +169,38 @@ class DiagnosisSessionRepository:
         except Exception as exc:
             raise DiagnosisSessionStorageError("无法创建诊断会话") from exc
         return _public_document(document)  # type: ignore[return-value]
+
+    def create_or_get_session(
+        self, visitor_id: str, request: DiagnosisStartRequest, request_id: str
+    ) -> tuple[dict[str, Any], bool]:
+        """Create a session once for a retried start request.
+
+        The unique visitor/request index is the race-safe authority; the
+        initial read is only a fast path for ordinary retries.
+        """
+        self._require_nonblank("request_id", request_id)
+        try:
+            existing = self._collection.find_one(
+                {"visitor_id": visitor_id, "creation_request_id": request_id}
+            )
+        except Exception as exc:
+            raise DiagnosisSessionStorageError("无法读取诊断创建请求") from exc
+        if existing is not None:
+            return _public_document(existing), True  # type: ignore[return-value]
+        try:
+            return self.create_session(
+                visitor_id, request, creation_request_id=request_id
+            ), False
+        except DiagnosisSessionConflictError:
+            try:
+                existing = self._collection.find_one(
+                    {"visitor_id": visitor_id, "creation_request_id": request_id}
+                )
+            except Exception as exc:
+                raise DiagnosisSessionStorageError("无法恢复重复诊断创建请求") from exc
+            if existing is None:
+                raise
+            return _public_document(existing), True  # type: ignore[return-value]
 
     def get_session(self, diagnosis_id: str, visitor_id: str) -> Optional[dict[str, Any]]:
         """Read one session only when it belongs to the supplied visitor."""
@@ -168,12 +222,123 @@ class DiagnosisSessionRepository:
         except Exception as exc:
             raise DiagnosisSessionStorageError("无法读取诊断会话列表") from exc
 
+    def claim_inference(
+        self,
+        diagnosis_id: str,
+        visitor_id: str,
+        request_id: str,
+        expected_revision: int,
+        *,
+        lease_seconds: int = 300,
+    ) -> InferenceClaimResult:
+        """Acquire one revision-scoped graph execution lease atomically.
+
+        Completed request records make delayed client retries idempotent.  A
+        bounded lease makes a process crash recoverable without a second task
+        queue or distributed lock.
+        """
+        self._require_nonblank("request_id", request_id)
+        session = self._get_required_session(diagnosis_id, visitor_id)
+        completed = self._find_processed_request(session, request_id)
+        if completed is not None:
+            return InferenceClaimResult(
+                session=_public_document(session),  # type: ignore[arg-type]
+                idempotent=True,
+                running=False,
+            )
+        self._require_expected_revision(session, expected_revision)
+        self._require_status(session, "in_progress")
+
+        now = _utc_now()
+        lease = {
+            "request_id": request_id,
+            "revision": expected_revision,
+            "started_at": now,
+            "expires_at": now + timedelta(seconds=lease_seconds),
+        }
+        updated = self._find_one_and_update(
+            {
+                "diagnosis_id": diagnosis_id,
+                "visitor_id": visitor_id,
+                "revision": expected_revision,
+                "status": "in_progress",
+                "execution": None,
+            },
+            {"$set": {"execution": lease, "updated_at": now}},
+        )
+        if updated is not None:
+            return InferenceClaimResult(
+                session=_public_document(updated),  # type: ignore[arg-type]
+                idempotent=False,
+                running=False,
+            )
+
+        latest = self._get_required_session(diagnosis_id, visitor_id)
+        completed = self._find_processed_request(latest, request_id)
+        if completed is not None:
+            return InferenceClaimResult(
+                session=_public_document(latest),  # type: ignore[arg-type]
+                idempotent=True,
+                running=False,
+            )
+        active = latest.get("execution")
+        if isinstance(active, dict):
+            expires_at = active.get("expires_at")
+            if isinstance(expires_at, datetime) and expires_at <= now:
+                reclaimed = self._find_one_and_update(
+                    {
+                        "diagnosis_id": diagnosis_id,
+                        "visitor_id": visitor_id,
+                        "revision": expected_revision,
+                        "status": "in_progress",
+                        "execution.request_id": active.get("request_id"),
+                        "execution.expires_at": {"$lt": now},
+                    },
+                    {"$set": {"execution": lease, "updated_at": now}},
+                )
+                if reclaimed is not None:
+                    return InferenceClaimResult(
+                        session=_public_document(reclaimed),  # type: ignore[arg-type]
+                        idempotent=False,
+                        running=False,
+                    )
+            if active.get("request_id") == request_id:
+                return InferenceClaimResult(
+                    session=_public_document(latest),  # type: ignore[arg-type]
+                    idempotent=False,
+                    running=True,
+                )
+            raise DiagnosisSessionConflictError("诊断会话已有正在执行的推理任务")
+        self._raise_after_failed_write(diagnosis_id, visitor_id, expected_revision)
+
+    def release_inference(
+        self, diagnosis_id: str, visitor_id: str, request_id: str
+    ) -> None:
+        """Release an unsuccessful lease without advancing session revision."""
+        now = _utc_now()
+        updated = self._find_one_and_update(
+            {
+                "diagnosis_id": diagnosis_id,
+                "visitor_id": visitor_id,
+                "execution.request_id": request_id,
+            },
+            {"$set": {"execution": None, "updated_at": now}},
+        )
+        if updated is None:
+            # A completed write may have cleared the lease between error
+            # handling paths; do not turn that safe state into a new failure.
+            session = self._get_required_session(diagnosis_id, visitor_id)
+            if session.get("execution") is not None:
+                raise DiagnosisSessionStateError("诊断推理执行占用已发生变化")
+
     def save_question_round(
         self,
         diagnosis_id: str,
         visitor_id: str,
         decision: DiagnosisAskDecision,
         expected_revision: int,
+        *,
+        execution_request_id: Optional[str] = None,
     ) -> dict[str, Any]:
         """Atomically append one generated question group and increment its count."""
         session = self._get_required_session(diagnosis_id, visitor_id)
@@ -192,8 +357,7 @@ class DiagnosisSessionRepository:
             "created_at": now,
             "answered_at": None,
         }
-        updated = self._find_one_and_update(
-            {
+        query = {
                 "diagnosis_id": diagnosis_id,
                 "visitor_id": visitor_id,
                 "revision": expected_revision,
@@ -202,12 +366,21 @@ class DiagnosisSessionRepository:
                 # concurrent caller cannot append a fourth round after its
                 # stale pre-read passed the guard above.
                 "clarification_count": {"$lt": 3},
-            },
-            {
-                "$push": {"rounds": round_record},
-                "$inc": {"clarification_count": 1, "revision": 1},
-                "$set": {"updated_at": now},
-            },
+            }
+        changes: dict[str, Any] = {
+            "$push": {"rounds": round_record},
+            "$inc": {"clarification_count": 1, "revision": 1},
+            "$set": {"updated_at": now},
+        }
+        if execution_request_id is not None:
+            query["execution.request_id"] = execution_request_id
+            changes["$set"]["execution"] = None
+            changes["$push"]["processed_requests"] = self._inference_request_record(
+                execution_request_id, "ask", expected_revision, now
+            )
+        updated = self._find_one_and_update(
+            query,
+            changes,
         )
         if updated is None:
             self._raise_after_failed_write(diagnosis_id, visitor_id, expected_revision)
@@ -313,6 +486,9 @@ class DiagnosisSessionRepository:
         visitor_id: str,
         decision: DiagnosisAnswerDecision | DiagnosisInsufficientDecision,
         expected_revision: int,
+        *,
+        execution_request_id: Optional[str] = None,
+        result_metadata: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
         """Persist a final answer or evidence-insufficient result without auto-resolving it."""
         if not isinstance(decision, (DiagnosisAnswerDecision, DiagnosisInsufficientDecision)):
@@ -325,22 +501,30 @@ class DiagnosisSessionRepository:
             "pending_verification" if decision.action == "answer" else "insufficient"
         )
         now = _utc_now()
-        updated = self._find_one_and_update(
-            {
+        query = {
                 "diagnosis_id": diagnosis_id,
                 "visitor_id": visitor_id,
                 "revision": expected_revision,
                 "status": "in_progress",
-            },
-            {
-                "$set": {
+            }
+        changes: dict[str, Any] = {
+            "$set": {
                     "status": target_status,
                     "result": decision.model_dump(mode="json"),
+                    "result_metadata": deepcopy(result_metadata),
                     "updated_at": now,
-                },
-                "$inc": {"revision": 1},
             },
-        )
+            "$inc": {"revision": 1},
+        }
+        if execution_request_id is not None:
+            query["execution.request_id"] = execution_request_id
+            changes["$set"]["execution"] = None
+            changes["$push"] = {
+                "processed_requests": self._inference_request_record(
+                    execution_request_id, decision.action, expected_revision, now
+                )
+            }
+        updated = self._find_one_and_update(query, changes)
         if updated is None:
             self._raise_after_failed_write(diagnosis_id, visitor_id, expected_revision)
         return _public_document(updated)  # type: ignore[return-value]
@@ -374,6 +558,56 @@ class DiagnosisSessionRepository:
         return self._transition_status(
             diagnosis_id, visitor_id, target_status, expected_revision, feedback=None
         )
+
+    def resume_unresolved(
+        self,
+        diagnosis_id: str,
+        visitor_id: str,
+        request_id: str,
+        expected_revision: int,
+    ) -> dict[str, Any]:
+        """Return an unresolved session to inference with retry-safe revision control."""
+        session = self._get_required_session(diagnosis_id, visitor_id)
+        if self._find_processed_request(session, request_id) is not None:
+            return _public_document(session)  # type: ignore[return-value]
+        self._require_expected_revision(session, expected_revision)
+        if session.get("clarification_count", 0) >= 3:
+            raise DiagnosisSessionStateError("已达到三轮追问上限，不能继续诊断")
+        self._require_status(session, "unresolved")
+        now = _utc_now()
+        request_record = {
+            "request_id": request_id,
+            "operation": "resume_unresolved",
+            "revision_before": expected_revision,
+            "revision_after": expected_revision + 1,
+            "processed_at": now,
+        }
+        updated = self._find_one_and_update(
+            {
+                "diagnosis_id": diagnosis_id,
+                "visitor_id": visitor_id,
+                "revision": expected_revision,
+                "status": "unresolved",
+                "processed_requests.request_id": {"$ne": request_id},
+                "execution": None,
+            },
+            {
+                "$set": {
+                    "status": "in_progress",
+                    "result": None,
+                    "result_metadata": None,
+                    "updated_at": now,
+                },
+                "$push": {"processed_requests": request_record},
+                "$inc": {"revision": 1},
+            },
+        )
+        if updated is None:
+            latest = self._get_required_session(diagnosis_id, visitor_id)
+            if self._find_processed_request(latest, request_id) is not None:
+                return _public_document(latest)  # type: ignore[return-value]
+            self._raise_after_failed_write(diagnosis_id, visitor_id, expected_revision)
+        return _public_document(updated)  # type: ignore[return-value]
 
     def delete_session(self, diagnosis_id: str, visitor_id: str) -> bool:
         """Delete one visitor-owned session; another visitor's record is untouched."""
@@ -464,6 +698,19 @@ class DiagnosisSessionRepository:
             if record.get("request_id") == request_id:
                 return deepcopy(record)
         return None
+
+    @staticmethod
+    def _inference_request_record(
+        request_id: str, action: str, revision_before: int, processed_at: datetime
+    ) -> dict[str, Any]:
+        return {
+            "request_id": request_id,
+            "operation": "inference",
+            "action": action,
+            "revision_before": revision_before,
+            "revision_after": revision_before + 1,
+            "processed_at": processed_at,
+        }
 
     @staticmethod
     def _current_unanswered_round(session: dict[str, Any]) -> Optional[dict[str, Any]]:

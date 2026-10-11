@@ -104,6 +104,19 @@ class DiagnosisContinueRequest(DiagnosisSchemaModel):
         return self
 
 
+class DiagnosisFeedbackRequest(DiagnosisSchemaModel):
+    """Explicit user feedback for a persisted diagnosis result."""
+
+    status: Literal["resolved", "unresolved"]
+    expected_revision: int = Field(ge=0)
+
+
+class DiagnosisEndRequest(DiagnosisSchemaModel):
+    """Request to stop an in-progress diagnosis without changing its result."""
+
+    expected_revision: int = Field(ge=0)
+
+
 class DiagnosisAskDecision(DiagnosisSchemaModel):
     """Decision to collect another independent group of answers."""
 

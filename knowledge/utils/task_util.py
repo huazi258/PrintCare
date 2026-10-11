@@ -15,6 +15,7 @@ _tasks_duration: Dict[str, Dict[str, float]] = defaultdict(dict)
 _tasks_result: Dict[str, Dict[str, Any]] = defaultdict(dict)
 
 _tasks_status: Dict[str, str] = {}
+_tasks_owner: Dict[str, Dict[str, str]] = {}
 
 TASK_STATUS_PENDING = "pending"  # 任务已创建，等待执行
 TASK_STATUS_PROCESSING = "processing"  # 任务处理中
@@ -89,9 +90,11 @@ def get_task_status(task_id: str) -> str:
     return _tasks_status.get(task_id, "")
 
 
-def create_task(task_id: str) -> None:
+def create_task(task_id: str, visitor_id: str | None = None, mode: str = "qa") -> None:
     """登记一个尚未执行的任务，供状态接口在后台任务启动前查询。"""
     _tasks_status.setdefault(task_id, TASK_STATUS_PENDING)
+    if visitor_id:
+        _tasks_owner[task_id] = {"visitor_id": visitor_id, "mode": mode}
 
 
 def task_exists(task_id: str) -> bool:
@@ -104,8 +107,14 @@ def task_exists(task_id: str) -> bool:
             _tasks_done_list,
             _tasks_duration,
             _tasks_result,
+            _tasks_owner,
         )
     )
+
+
+def get_task_owner(task_id: str) -> Dict[str, str]:
+    """Return optional anonymous ownership metadata for a runtime task."""
+    return dict(_tasks_owner.get(task_id, {}))
 
 
 def update_task_status(task_id: str, status_name: str) -> None:

@@ -55,6 +55,15 @@ class FakeDiagnosisCollection:
                 from pymongo.errors import DuplicateKeyError
 
                 raise DuplicateKeyError("duplicate diagnosis_id")
+            creation_request_id = document.get("creation_request_id")
+            if isinstance(creation_request_id, str) and any(
+                item.get("visitor_id") == document["visitor_id"]
+                and item.get("creation_request_id") == creation_request_id
+                for item in self.documents
+            ):
+                from pymongo.errors import DuplicateKeyError
+
+                raise DuplicateKeyError("duplicate visitor creation request")
             stored = copy.deepcopy(document)
             stored["_id"] = len(self.documents) + 1
             self.documents.append(stored)
@@ -250,6 +259,19 @@ class DiagnosisSessionRepositoryTestCase(unittest.TestCase):
         self.assertIsNone(self.repository.get_session("diagnosis-1", "visitor-a"))
         self.assertTrue(any(config.get("unique") for _, config in self.collection.indexes))
 
+    def test_concurrent_start_request_creates_only_one_session(self):
+        def start_once():
+            return self.repository.create_or_get_session(
+                "visitor-a", self._start_request(), "start-request-1"
+            )
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(lambda _: start_once(), range(2)))
+
+        self.assertEqual(len(self.collection.documents), 1)
+        self.assertEqual(results[0][0]["diagnosis_id"], results[1][0]["diagnosis_id"])
+        self.assertEqual(sum(idempotent for _, idempotent in results), 1)
+
     def test_rounds_answers_references_and_facts_are_persisted_for_recovery(self):
         created = self._create()
         after_questions = self.repository.save_question_round(
@@ -359,6 +381,28 @@ class DiagnosisSessionRepositoryTestCase(unittest.TestCase):
         self.assertEqual(restored["revision"], 2)
         self.assertEqual(len(restored["rounds"][0]["answers"]), 1)
         self.assertEqual(len(restored["facts"]), 1)
+
+    def test_inference_lease_prevents_duplicate_graph_execution_and_releases_on_failure(self):
+        created = self._create()
+        first = self.repository.claim_inference(
+            created["diagnosis_id"], "visitor-a", "infer-1", expected_revision=0
+        )
+        same_request = self.repository.claim_inference(
+            created["diagnosis_id"], "visitor-a", "infer-1", expected_revision=0
+        )
+        with self.assertRaises(DiagnosisSessionConflictError):
+            self.repository.claim_inference(
+                created["diagnosis_id"], "visitor-a", "infer-2", expected_revision=0
+            )
+
+        self.repository.release_inference(created["diagnosis_id"], "visitor-a", "infer-1")
+        retry = self.repository.claim_inference(
+            created["diagnosis_id"], "visitor-a", "infer-1", expected_revision=0
+        )
+
+        self.assertFalse(first.idempotent)
+        self.assertTrue(same_request.running)
+        self.assertFalse(retry.running)
 
     def test_question_round_write_rejects_a_fourth_round(self):
         created = self._create()

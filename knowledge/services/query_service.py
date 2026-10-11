@@ -9,6 +9,7 @@ from knowledge.utils.diagnosis_session_util import DiagnosisSessionRepository
 from knowledge.utils.mongo_history_util import clear_history, get_recent_messages
 from knowledge.utils.task_util import create_task, get_task_result, set_task_result, update_task_status, \
     TASK_STATUS_COMPLETED, TASK_STATUS_FAILED, TASK_STATUS_PROCESSING
+from knowledge.utils.sse_util import close_sse_stream
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +92,14 @@ class QueryService:
             logger.error(f"启动查询流程执行失败：{e}")
             set_task_result(task_id, "error", str(e))
             update_task_status(task_id, TASK_STATUS_FAILED)
+        finally:
+            if is_stream:
+                close_sse_stream(task_id)
+
+    @staticmethod
+    def run_diagnosis_graph(state: Dict[str, Any]) -> Dict[str, Any]:
+        """Invoke the existing shared graph with a persisted diagnosis state."""
+        return query_app.invoke(state)
 
     def generate_session_id(self) -> str:
         return str(uuid.uuid4())
@@ -115,7 +124,7 @@ class QueryService:
     def clear_history(self, session_id: str) -> int:
         return clear_history(session_id)
 
-    def generate_task_id(self):
+    def generate_task_id(self, visitor_id: str | None = None, mode: str = "qa"):
         task_id = str(uuid.uuid4().hex[:8])
-        create_task(task_id)
+        create_task(task_id, visitor_id=visitor_id, mode=mode)
         return task_id
