@@ -202,6 +202,23 @@ class DiagnosisDecisionNodeTestCase(unittest.TestCase):
         self.assertEqual(len(llm.prompts), 2)
         self.assertEqual(result["diagnosis_candidate"]["action"], "answer")
 
+    def test_framing_only_variant_of_answered_question_is_retried(self):
+        llm = FakeLlm([ask_payload("是否已按照建议清洁打印平台？"), answer_payload()])
+        with patch(
+            "knowledge.processor.query_process.nodes.diagnosis_decision.AIClients.get_llm_openai",
+            return_value=llm,
+        ):
+            result = DiagnosisDecisionNode().process(
+                self._state(
+                    diagnosis_answer_history=[
+                        {"question": "是否已经清洁打印平台？", "option": "是", "kind": "confirmed"}
+                    ]
+                )
+            )
+
+        self.assertEqual(len(llm.prompts), 2)
+        self.assertEqual(result["diagnosis_candidate"]["action"], "answer")
+
     def test_round_limit_converts_repeated_ask_to_safe_insufficient_candidate(self):
         llm = FakeLlm([ask_payload(), ask_payload()])
         with patch(
@@ -253,6 +270,23 @@ class DiagnosisDecisionNodeTestCase(unittest.TestCase):
         self.assertIn("invalid_support", llm.prompts[1][-1].content)
         self.assertIn("完整 JSON", llm.prompts[1][-1].content)
         self.assertIn("打印平台状态", llm.prompts[1][-1].content)
+
+    def test_answer_support_failure_reprompts_with_literal_answer_guidance(self):
+        invalid = answer_payload()
+        invalid["conclusion"] = "资料指向需要继续排查。"
+        llm = FakeLlm([invalid, answer_payload()])
+
+        with patch(
+            "knowledge.processor.query_process.nodes.diagnosis_decision.AIClients.get_llm_openai",
+            return_value=llm,
+        ):
+            result = DiagnosisDecisionNode().process(self._state())
+
+        self.assertEqual(result["diagnosis_candidate"]["action"], "answer")
+        self.assertEqual(len(llm.prompts), 2)
+        repair_prompt = llm.prompts[1][-1].content
+        self.assertIn("conclusion_evidence", repair_prompt)
+        self.assertIn("一条建议只保留一个逐字支持的操作", repair_prompt)
 
 
 if __name__ == "__main__":

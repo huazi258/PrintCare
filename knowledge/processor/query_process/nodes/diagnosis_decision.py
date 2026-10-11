@@ -201,7 +201,18 @@ class DiagnosisDecisionNode(BaseNode):
 
     @staticmethod
     def _normalize_question(value: Any) -> str:
-        return "".join(str(value).split()).casefold() if isinstance(value, str) else ""
+        if not isinstance(value, str):
+            return ""
+        normalized = "".join(str(value).split()).casefold()
+        normalized = "".join(char for char in normalized if char.isalnum())
+        # These phrases only frame a yes/no question.  Removing them catches
+        # deterministic near-duplicates such as "是否已涂胶" and "是否已按照
+        # 建议涂胶" without attempting open-ended semantic matching.
+        for filler in (
+            "是否", "请问", "已经", "已", "按照建议", "按建议", "根据提示", "根据建议", "吗"
+        ):
+            normalized = normalized.replace(filler, "")
+        return normalized
 
     @staticmethod
     def _no_evidence_decision() -> DiagnosisInsufficientDecision:

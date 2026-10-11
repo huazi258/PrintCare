@@ -20,7 +20,8 @@ DIAGNOSIS_DECISION_SYSTEM_PROMPT = """
    "references":[{"source_id":"..."}],"safety_notes":[...]}
    conclusion_evidence 和每条建议的 evidence 都必须含 source_id、excerpt、support_text；先逐字复制资料中的连续
    原文 excerpt，再逐字复制其中非通用的 support_text，且 support_text 必须同时原样出现在 excerpt 和对应结论/建议
-   文本中。每个建议都必须受资料支持；高温、电气或
+   文本中。结论只能陈述资料已直接支持的内容，不能把资料建议改写成未经证实的“主要原因”；每一条建议应只对应一个
+   可逐字引用的操作，不要把多个步骤合并或改写为新操作。每个建议都必须受资料支持；高温、电气或
    拆机风险操作须在同一原文片段中包含具体操作和适用安全条件，否则不要给出操作步骤。
 3. insufficient：{"action":"insufficient","reason":"...","confirmed_facts":[...],
    "next_steps":[...]}
@@ -32,6 +33,10 @@ DIAGNOSIS_DECISION_SYSTEM_PROMPT = """
 {"source_id":"<资料中的 source_id>","excerpt":"<从同一资料 content 逐字复制的连续原文>","support_text":"<excerpt 内且同样出现在问题/结论/建议中的具体短语>"}
 例如问题文本为“是否已经清洁打印平台？”，support_text 可以是“清洁打印平台”，前提是这四个字
 逐字出现在该资料原文 excerpt 中。不能只填“检查”“设备”等通用词；无法满足时输出 insufficient。
+
+answer 的合规写法也必须保留实际资料措辞：若 support_text 是“建议在平台表面均匀涂抹固体胶”，结论或一条建议中
+必须逐字包含“建议在平台表面均匀涂抹固体胶”，不能改成“请涂抹固体胶”或把它与校准合并。若没有可直接放入结论的
+资料措辞，结论应改为保守的资料说明，或输出 insufficient。
 """.strip()
 
 
@@ -59,5 +64,5 @@ DIAGNOSIS_VALIDATION_REPAIR_TEMPLATE = """
 VALIDATION_REPAIR_INSTRUCTIONS = {
     "invalid_support": "support_text 必须是 excerpt 中真实的连续非通用短语，并且同样逐字出现在对应问题、结论或建议文本中。",
     "invalid_excerpt": "excerpt 必须逐字出现在所填 source_id 对应的输入资料 content 中。",
-    "unsupported_content": "对应问题、结论或建议文本必须原样包含它引用的 support_text。对于 ask，逐题核对每个 references；无法满足的整题必须删除，保留一题完全合规的问题即可。",
+    "unsupported_content": "对应问题、结论或建议文本必须原样包含它引用的 support_text。对于 answer，逐个检查 conclusion_evidence 和每条建议的 evidence：支持结论的短语必须放在 conclusion 中；一条建议只保留一个逐字支持的操作，不能把两条资料操作合并或改写。对于 ask，逐题核对每个 references；无法满足的整题必须删除，保留一题完全合规的问题即可。",
 }
