@@ -9,7 +9,7 @@ export function AppLayout() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <Sidebar />
-      <header className="border-b border-border bg-card lg:hidden">
+      <header className="sticky top-0 z-30 border-b border-border bg-card/95 backdrop-blur lg:hidden">
         <div className="mx-auto flex h-16 max-w-[1200px] items-center justify-between px-4">
           <Brand />
           <button
