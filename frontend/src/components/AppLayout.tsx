@@ -1,43 +1,33 @@
-import { NavLink, Outlet } from "react-router-dom";
-import { cn } from "@/lib/utils";
-
-const navigation = [
-  { to: "/", label: "设备工作台", end: true },
-  { to: "/qa", label: "知识问答" },
-  { to: "/diagnosis", label: "智能诊断" },
-  { to: "/history", label: "历史记录" },
-  { to: "/admin", label: "知识库管理" },
-];
+import { Menu, X } from "lucide-react";
+import { useState } from "react";
+import { Outlet } from "react-router-dom";
+import { Brand, MobileNavigation, Sidebar } from "@/components/Sidebar";
 
 export function AppLayout() {
+  const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
+
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <header className="border-b border-border bg-card">
-        <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-lg font-semibold tracking-tight">PrintCare AI</p>
-            <p className="text-sm text-muted-foreground">Creality K1 技术支持平台</p>
-          </div>
-          <nav aria-label="主导航" className="flex flex-wrap gap-1">
-            {navigation.map((item) => (
-              <NavLink
-                className={({ isActive }) =>
-                  cn(
-                    "rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-muted",
-                    isActive && "bg-muted text-foreground",
-                  )
-                }
-                end={item.end}
-                key={item.to}
-                to={item.to}
-              >
-                {item.label}
-              </NavLink>
-            ))}
-          </nav>
+      <Sidebar />
+      <header className="border-b border-border bg-card lg:hidden">
+        <div className="mx-auto flex h-16 max-w-[1200px] items-center justify-between px-4">
+          <Brand />
+          <button
+            aria-controls="mobile-navigation"
+            aria-expanded={mobileNavigationOpen}
+            aria-label={mobileNavigationOpen ? "收起导航" : "展开导航"}
+            className="flex size-10 items-center justify-center rounded-lg text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={() => setMobileNavigationOpen((open) => !open)}
+            type="button"
+          >
+            {mobileNavigationOpen ? <X aria-hidden="true" size={20} /> : <Menu aria-hidden="true" size={20} />}
+          </button>
         </div>
       </header>
-      <main className="mx-auto w-full max-w-6xl px-4 py-8">
+      <div id="mobile-navigation">
+        <MobileNavigation open={mobileNavigationOpen} onNavigate={() => setMobileNavigationOpen(false)} />
+      </div>
+      <main className="min-w-0 px-4 py-6 sm:px-6 sm:py-8 lg:ml-60 lg:px-10">
         <Outlet />
       </main>
     </div>
