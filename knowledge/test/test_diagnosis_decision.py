@@ -236,6 +236,24 @@ class DiagnosisDecisionNodeTestCase(unittest.TestCase):
         self.assertEqual(timeout_result["diagnosis_system_error"]["code"], "model_unavailable")
         self.assertEqual(timeout_result["diagnosis_candidate"], {})
 
+    def test_retryable_evidence_format_failure_reprompts_with_server_feedback(self):
+        invalid = ask_payload()
+        invalid["questions"][0]["references"][0]["support_text"] = "打印平台状态"
+        llm = FakeLlm([invalid, ask_payload()])
+
+        with patch(
+            "knowledge.processor.query_process.nodes.diagnosis_decision.AIClients.get_llm_openai",
+            return_value=llm,
+        ):
+            result = DiagnosisDecisionNode().process(self._state())
+
+        self.assertEqual(result["diagnosis_status"], "candidate")
+        self.assertEqual(result["diagnosis_candidate"]["action"], "ask")
+        self.assertEqual(len(llm.prompts), 2)
+        self.assertIn("invalid_support", llm.prompts[1][-1].content)
+        self.assertIn("完整 JSON", llm.prompts[1][-1].content)
+        self.assertIn("打印平台状态", llm.prompts[1][-1].content)
+
 
 if __name__ == "__main__":
     unittest.main()

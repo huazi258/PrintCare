@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass
 from typing import Any
 
@@ -120,7 +121,9 @@ def validate_diagnosis_candidate(
     evidence_by_source = {item.source_id: item for item in trusted_evidence}
     if isinstance(candidate, DiagnosisAskDecision):
         for question in candidate.questions:
-            _validate_evidence_links(question.references, question.text, evidence_by_source)
+            _validate_question_evidence_links(
+                question.references, question.text, evidence_by_source
+            )
         return candidate
     if isinstance(candidate, DiagnosisAnswerDecision):
         if not evidence_by_source:
@@ -149,14 +152,43 @@ def validate_diagnosis_candidate(
 def _validate_evidence_links(
     references: list[EvidenceExcerpt], subject: str, evidence_by_source: dict[str, TrustedEvidence]
 ) -> None:
+    _validate_evidence_links_base(references, evidence_by_source)
+    normalized_subject = _normalise(subject)
+    for reference in references:
+        normalized_support = _normalise(reference.support_text)
+        if normalized_support not in normalized_subject:
+            raise DiagnosisValidationError("unsupported_content", "结论或建议未包含资料支持片段")
+
+
+def _validate_question_evidence_links(
+    references: list[EvidenceExcerpt], question: str, evidence_by_source: dict[str, TrustedEvidence]
+) -> None:
+    """Verify ask citations without treating a question as a repair instruction.
+
+    A question may paraphrase an evidence-backed condition (for example asking
+    whether a documented cleaning step was performed).  Its source, excerpt,
+    and declared support text still need to be literal and trusted; additionally
+    it must share a non-generic phrase with the cited excerpt so unrelated K1
+    material cannot authorize a question.
+    """
+    _validate_evidence_links_base(references, evidence_by_source)
+    if not any(
+        _has_meaningful_question_overlap(question, reference.excerpt)
+        for reference in references
+    ):
+        raise DiagnosisValidationError("unsupported_question", "问题与引用原文没有可核验的具体关联")
+
+
+def _validate_evidence_links_base(
+    references: list[EvidenceExcerpt], evidence_by_source: dict[str, TrustedEvidence]
+) -> None:
     if not references:
         raise DiagnosisValidationError("missing_reference", "缺少可核验的来源")
-    normalized_subject = _normalise(subject)
     for reference in references:
         evidence = evidence_by_source.get(reference.source_id)
         if evidence is None:
             raise DiagnosisValidationError("invalid_reference", "引用不属于本轮可信证据")
-        if reference.excerpt not in evidence.content:
+        if not _contains_compatibly(reference.excerpt, evidence.content):
             raise DiagnosisValidationError("invalid_excerpt", "声明的原文片段不在引用文档中")
         normalized_support = _normalise(reference.support_text)
         if len(normalized_support) < 3:
@@ -165,8 +197,6 @@ def _validate_evidence_links(
             raise DiagnosisValidationError("weak_support", "支持片段过于通用，不能建立可追溯关系")
         if normalized_support not in _normalise(reference.excerpt):
             raise DiagnosisValidationError("invalid_support", "支持片段不在声明的原文片段中")
-        if normalized_support not in normalized_subject:
-            raise DiagnosisValidationError("unsupported_content", "建议或问题未包含资料支持片段")
 
 
 def _conflicts_with_device(value: Any, expected: str) -> bool:
@@ -246,8 +276,31 @@ def _is_generic_support(normalized_support: str) -> bool:
     return len(remainder) < 2
 
 
+def _has_meaningful_question_overlap(question: str, excerpt: str) -> bool:
+    normalized_question = _normalise(question)
+    normalized_excerpt = _normalise(excerpt)
+    ignored = {
+        "是否", "已经", "请问", "可以", "需要", "打印", "设备", "平台", "模型", "故障",
+    }
+    for width in range(min(12, len(normalized_question)), 1, -1):
+        for start in range(len(normalized_question) - width + 1):
+            fragment = normalized_question[start:start + width]
+            if fragment in ignored or _is_generic_support(fragment):
+                continue
+            if fragment in normalized_excerpt:
+                return True
+    return False
+
+
 def _normalise(value: str) -> str:
-    return "".join(value.split()).casefold()
+    return "".join(unicodedata.normalize("NFKC", value).split()).casefold()
+
+
+def _contains_compatibly(fragment: str, source: str) -> bool:
+    """Match literal text or a Unicode compatibility-equivalent variant only."""
+    return fragment in source or unicodedata.normalize("NFKC", fragment) in unicodedata.normalize(
+        "NFKC", source
+    )
 
 
 def _clean_text(value: Any) -> str:

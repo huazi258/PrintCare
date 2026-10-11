@@ -97,7 +97,10 @@ class AnswerOutputNode(BaseNode):
             state["answer"] = self._stream_generate(llm_client, prompt, task_id)
         else:
             state["answer"] = self._invoke_generate(llm_client, prompt)
-            set_task_result(task_id, "answer", state["answer"])
+        # Both execution modes must leave the completed answer available to
+        # /status/{task_id}. Streaming has already emitted deltas, but the
+        # in-memory task result is what the recovery endpoint reads.
+        set_task_result(task_id, "answer", state["answer"])
 
     def _stream_generate(self, llm_client, prompt, task_id):
         """ 流式输出"""

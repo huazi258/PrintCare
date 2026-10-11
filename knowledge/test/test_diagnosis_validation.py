@@ -147,6 +147,34 @@ class DiagnosisValidationTestCase(unittest.TestCase):
         self.assertEqual(result["diagnosis_status"], "validation_rejected")
         self.assertEqual(result["diagnosis_validation_error"]["code"], "unsupported_content")
 
+    def test_compatibility_normalized_excerpt_still_requires_a_real_source_fragment(self):
+        document = {**K1_DOCUMENT, "content": "请⽤干布清洁打印平台。"}
+        candidate = {
+            "action": "ask",
+            "questions": [{
+                "question_id": "clean-platform",
+                "text": "是否已用干布清洁打印平台？",
+                "options": [
+                    {"option_id": "yes", "text": "是", "option_type": "normal"},
+                    {"option_id": "unknown", "text": "不确定", "option_type": "uncertain"},
+                ],
+                "references": [evidence_excerpt("用干布清洁打印平台", "请用干布清洁打印平台。")],
+            }],
+        }
+
+        result = DiagnosisValidationNode().process(self._state(candidate, [document]))
+
+        self.assertEqual(result["diagnosis_status"], "validated")
+
+    def test_question_cannot_borrow_an_unrelated_but_real_k1_excerpt(self):
+        candidate = ask_candidate()
+        candidate["questions"][0]["text"] = "喷嘴温度是否异常？"
+
+        result = DiagnosisValidationNode().process(self._state(candidate))
+
+        self.assertEqual(result["diagnosis_status"], "validation_rejected")
+        self.assertEqual(result["diagnosis_validation_error"]["code"], "unsupported_question")
+
     def test_answer_conclusion_requires_traceable_source_support(self):
         candidate = answer_candidate()
         candidate["conclusion"] = "资料指向需要更换主板。"

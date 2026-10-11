@@ -11,7 +11,7 @@ from knowledge.processor.query_process.nodes.item_name_confirm import (
     ItemNameExtractor,
 )
 from knowledge.services.query_service import QueryService
-from knowledge.utils import mongo_history_util
+from knowledge.utils import mongo_history_util, task_util
 
 
 class FakeCursor:
@@ -187,6 +187,36 @@ class HistoryAndQueryNodeTestCase(unittest.TestCase):
             return_value=None,
         ):
             self.assertEqual(aligner._match_vector(["RS-12"]), [])
+
+    def test_streaming_answer_is_available_from_task_status_result(self):
+        task_util._tasks_result.clear()
+        node = AnswerOutputNode()
+        llm = Mock()
+        llm.stream.return_value = [
+            SimpleNamespace(content="第一段"),
+            SimpleNamespace(content="第二段"),
+        ]
+        state = {
+            "task_id": "stream-task",
+            "session_id": "stream-session",
+            "is_stream": True,
+            "original_query": "K1 如何清洁平台？",
+            "reranked_docs": [],
+        }
+
+        with patch(
+            "knowledge.processor.query_process.nodes.answer_output.AIClients.get_llm_openai",
+            return_value=llm,
+        ), patch(
+            "knowledge.processor.query_process.nodes.answer_output.save_chat_message"
+        ) as save_history, patch(
+            "knowledge.processor.query_process.nodes.answer_output.push_sse_event"
+        ):
+            result = node.process(state)
+
+        self.assertEqual(result["answer"], "第一段第二段")
+        self.assertEqual(task_util.get_task_result("stream-task", "answer"), "第一段第二段")
+        self.assertEqual(save_history.call_count, 2)
 
 
 if __name__ == "__main__":

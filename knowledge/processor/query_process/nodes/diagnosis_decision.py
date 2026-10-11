@@ -7,6 +7,7 @@ final results: T2-05 must first verify citations and recommendation support.
 from __future__ import annotations
 
 import json
+import unicodedata
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -17,18 +18,25 @@ from knowledge.processor.query_process.state import QueryGraphState
 from knowledge.prompt.diagnosis_prompt import (
     DIAGNOSIS_DECISION_SYSTEM_PROMPT,
     DIAGNOSIS_DECISION_USER_TEMPLATE,
+    DIAGNOSIS_VALIDATION_REPAIR_TEMPLATE,
+    VALIDATION_REPAIR_INSTRUCTIONS,
 )
 from knowledge.schema.diagnosis_schema import (
     DiagnosisAskDecision,
     DiagnosisDecision,
     DiagnosisInsufficientDecision,
 )
-from knowledge.services.diagnosis_validation import build_trusted_evidence
+from knowledge.services.diagnosis_validation import (
+    DiagnosisValidationError,
+    build_trusted_evidence,
+    validate_diagnosis_candidate,
+)
 from knowledge.utils.client.ai_clients import AIClients
 
 
 MAX_CLARIFICATION_ROUNDS = 3
 DEFAULT_MAX_ATTEMPTS = 2
+_RETRYABLE_VALIDATION_CODES = frozenset(VALIDATION_REPAIR_INSTRUCTIONS)
 _DECISION_ADAPTER = TypeAdapter(DiagnosisDecision)
 
 
@@ -45,7 +53,10 @@ class DiagnosisDecisionNode(BaseNode):
 
     def process(self, state: QueryGraphState) -> QueryGraphState:
         """Generate a non-persistent candidate or expose a system failure."""
-        evidence = self._trusted_local_evidence(state)
+        trusted_evidence = build_trusted_evidence(
+            state.get("reranked_docs"), state.get("device_id")
+        )
+        evidence = self._renderable_evidence(trusted_evidence)
         if not evidence:
             return self._set_candidate(state, self._no_evidence_decision())
 
@@ -55,10 +66,21 @@ class DiagnosisDecisionNode(BaseNode):
         attempted_errors: list[str] = []
         model_failure = False
 
-        for _ in range(self._max_attempts):
+        for attempt in range(self._max_attempts):
             try:
                 decision = self._invoke_and_parse(prompt)
                 self._validate_candidate(decision, state, clarification_count)
+                validate_diagnosis_candidate(decision, trusted_evidence)
+            except DiagnosisValidationError as exc:
+                attempted_errors.append(f"{exc.code}: {exc}")
+                if exc.code in _RETRYABLE_VALIDATION_CODES and attempt + 1 < self._max_attempts:
+                    prompt = self._append_validation_repair_instruction(
+                        state["prompt"], exc.code, decision
+                    )
+                    continue
+                # The graph's validation node remains the authority that safely
+                # degrades a non-retryable (or exhausted) candidate.
+                return self._set_candidate(state, decision)
             except (ValueError, ValidationError, json.JSONDecodeError) as exc:
                 attempted_errors.append(str(exc))
                 continue
@@ -114,12 +136,36 @@ class DiagnosisDecisionNode(BaseNode):
                 raise ValueError("候选问题重复已回答的问题")
 
     @staticmethod
-    def _trusted_local_evidence(state: QueryGraphState) -> list[dict[str, str]]:
-        """Use the same strict source set later consumed by validation."""
+    def _renderable_evidence(evidence: list[Any]) -> list[dict[str, str]]:
+        """Render the same strict source set later consumed by validation."""
         return [
-            {"source_id": item.source_id, "title": item.title, "content": item.content}
-            for item in build_trusted_evidence(state.get("reranked_docs"), state.get("device_id"))
+            {
+                "source_id": item.source_id,
+                "title": item.title,
+                # Imported manuals can contain compatibility radicals that look
+                # identical to canonical Chinese characters.  The validator
+                # applies the same narrow NFKC equivalence when tracing back.
+                "content": unicodedata.normalize("NFKC", item.content),
+            }
+            for item in evidence
         ]
+
+    @staticmethod
+    def _append_validation_repair_instruction(
+        prompt: str, error_code: str, decision: DiagnosisDecision
+    ) -> str:
+        """Ask once for a complete replacement without changing retrieval evidence."""
+        return "\n\n".join(
+            (
+                prompt,
+                DIAGNOSIS_VALIDATION_REPAIR_TEMPLATE.format(
+                    error_code=error_code,
+                    instruction=VALIDATION_REPAIR_INSTRUCTIONS[error_code],
+                ),
+                "上一版候选仅用于定位格式错误，不能当作新证据；请逐项复核后输出完整替代 JSON：\n"
+                + json.dumps(decision.model_dump(mode="json"), ensure_ascii=False),
+            )
+        )
 
     def _build_prompt(
         self,
