@@ -37,14 +37,24 @@ class AnswerOutputNode(BaseNode):
             state['prompt'] = prompt
             self._generage_answer(state, prompt)
 
-        # 3.写入历史记录
-        self._write_history(state)
+        # 3. Persist only sources that entered this answer's actual prompt
+        # context. They are contextual references, not model-claimed citations.
+        sources = self._normalize_sources(state.get("sources"))
+        state["sources"] = sources
+        set_task_result(task_id, "sources", sources)
 
-        # 4.流式模式发送结束事件
+        # 4.写入历史记录
+        self._write_history(state, sources)
+
+        # 5.流式模式发送结束事件
         if is_stream:
-            push_sse_event(task_id, SSEEvent.FINAL, {"answer": state.get("answer", "")})
+            push_sse_event(
+                task_id,
+                SSEEvent.FINAL,
+                {"answer": state.get("answer", ""), "sources": sources},
+            )
 
-        # 5.返回结果
+        # 6.返回结果
         return state
 
     # ================================================================== #
@@ -57,7 +67,7 @@ class AnswerOutputNode(BaseNode):
     # ================================================================== #
     #                    历史记录                                           #
     # ================================================================== #
-    def _write_history(self, state: QueryGraphState):
+    def _write_history(self, state: QueryGraphState, sources: List[Dict[str, Any]]):
         """将用户问题和组手回答写入 MongoDB 历史记录"""
         session_id = state.get("session_id")
         visitor_id = state.get("visitor_id", "")
@@ -80,7 +90,8 @@ class AnswerOutputNode(BaseNode):
                     role="assistant",
                     text=state["answer"],
                     rewritten_query=rewritten_query,
-                    item_names=item_names
+                    item_names=item_names,
+                    sources=sources,
                 )
         except Exception as e:
             self.logger.warning(f"保存历史记录出错：{e}")
@@ -141,8 +152,11 @@ class AnswerOutputNode(BaseNode):
         question = state.get("rewritten_query") or state.get("original_query", "")
         item_names = state.get("item_names", [])
 
-        # 2.格式化上下文文档
-        context_str, char_budget = self._format_reranked_docs(state.get("reranked_docs"), char_budget)
+        # 2.格式化上下文文档。仅保留实际进入字符预算的来源。
+        context_str, char_budget, sources = self._format_context_sources(
+            state.get("reranked_docs"), char_budget
+        )
+        state["sources"] = sources
 
         # 3.格式化历史对话
         history_str, char_budget = self._format_chat_history(state.get("history", []), char_budget)
@@ -158,8 +172,18 @@ class AnswerOutputNode(BaseNode):
     def _format_reranked_docs(self, reranked_docs: List[Dict[str, Any]], char_budget: int) -> Tuple[str, int]:
         """格式化重排序文档，带字符预算控制"""
 
+        context, remaining, _ = self._format_context_sources(reranked_docs, char_budget)
+        return context, remaining
+
+    def _format_context_sources(
+        self, reranked_docs: List[Dict[str, Any]], char_budget: int
+    ) -> Tuple[str, int, List[Dict[str, Any]]]:
+        """Format bounded context and retain only documents included in it."""
+
         used_chars = 0
         formatted_lines = []
+        sources: List[Dict[str, Any]] = []
+        source_ids = set()
 
         for idx, doc in enumerate(reranked_docs or [], 1):  # 索引从1开始，不是从0开始啦
             if not isinstance(doc, dict):
@@ -200,7 +224,70 @@ class AnswerOutputNode(BaseNode):
                 break
             formatted_lines.append(doc_entry)
             used_chars += separator_length + len(doc_entry)
-        return "\n\n".join(formatted_lines), char_budget - used_chars
+            source = self._source_from_context_doc(doc, content)
+            if source is not None and source["source_id"] not in source_ids:
+                source_ids.add(source["source_id"])
+                sources.append(source)
+        return "\n\n".join(formatted_lines), char_budget - used_chars, sources
+
+    @staticmethod
+    def _non_empty_string(value: Any) -> str | None:
+        return value.strip() if isinstance(value, str) and value.strip() else None
+
+    def _source_from_context_doc(self, doc: Dict[str, Any], content: str) -> Dict[str, Any] | None:
+        source_type = self._non_empty_string(doc.get("source_type") or doc.get("source"))
+        source_id = self._non_empty_string(doc.get("source_id"))
+        if source_type not in {"local", "web"} or source_id is None:
+            return None
+
+        file_title = self._non_empty_string(doc.get("file_title"))
+        document_title = self._non_empty_string(doc.get("title"))
+        source: Dict[str, Any] = {
+            "source_type": source_type,
+            "source_id": source_id,
+            "title": file_title or document_title,
+            "excerpt": content[:600],
+        }
+        if file_title and document_title and document_title != file_title:
+            source["section_title"] = document_title
+        if source_type == "web":
+            url = self._non_empty_string(doc.get("url"))
+            if url:
+                source["url"] = url
+        return source
+
+    def _normalize_sources(self, sources: Any) -> List[Dict[str, Any]]:
+        if not isinstance(sources, list):
+            return []
+
+        normalized: List[Dict[str, Any]] = []
+        source_ids = set()
+        for source in sources:
+            if not isinstance(source, dict):
+                continue
+            source_type = self._non_empty_string(source.get("source_type"))
+            source_id = self._non_empty_string(source.get("source_id"))
+            excerpt = self._non_empty_string(source.get("excerpt"))
+            if source_type not in {"local", "web"} or source_id is None or excerpt is None:
+                continue
+            if source_id in source_ids:
+                continue
+            source_ids.add(source_id)
+            record: Dict[str, Any] = {
+                "source_type": source_type,
+                "source_id": source_id,
+                "excerpt": excerpt,
+            }
+            for field in ("title", "section_title"):
+                value = self._non_empty_string(source.get(field))
+                if value:
+                    record[field] = value
+            if source_type == "web":
+                url = self._non_empty_string(source.get("url"))
+                if url:
+                    record["url"] = url
+            normalized.append(record)
+        return normalized
 
     def _format_chat_history(self, chat_history: List[Dict], char_budget) -> Tuple[str, int]:
         """格式化历史对话，带字符预算控制"""

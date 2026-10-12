@@ -58,11 +58,28 @@ class QueryRequest(BaseModel):
         return self
 
 
+class QaSourceReference(BaseModel):
+    """A document that was included in the QA generation context.
+
+    This is deliberately a context-source record, not a model-claimed
+    sentence-level citation. Fields are optional only where the underlying
+    retrieved document did not provide them.
+    """
+
+    source_type: Literal["local", "web"]
+    source_id: str
+    title: Optional[str] = None
+    section_title: Optional[str] = None
+    excerpt: str
+    url: Optional[str] = None
+
+
 class QueryResponse(BaseModel):
     """查询响应模型"""
     message: str
     session_id: str
     answer: str
+    sources: List[QaSourceReference] = Field(default_factory=list)
     task_id:str
 
 
@@ -82,4 +99,5 @@ class QueryTaskStatusResponse(BaseModel):
     answer: str = ""
     error: Optional[str] = None
     image_urls: List[str] = Field(default_factory=list)
+    sources: List[QaSourceReference] = Field(default_factory=list)
     diagnosis: Optional[Dict] = None

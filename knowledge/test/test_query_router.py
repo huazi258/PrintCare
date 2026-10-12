@@ -69,12 +69,25 @@ class QueryRouterTestCase(unittest.TestCase):
         task_util.add_done_task("completed-task", "answer_output_node")
         task_util.set_task_result("completed-task", "answer", "已生成答案")
         task_util.set_task_result("completed-task", "image_urls", ["https://example.test/image.png"])
+        task_util.set_task_result("completed-task", "sources", [{
+            "source_type": "local",
+            "source_id": "chunk:101",
+            "excerpt": "K1 手册片段",
+        }])
         completed = self.client.get("/status/completed-task")
         self.assertEqual(completed.status_code, 200)
         self.assertEqual(completed.json()["status"], task_util.TASK_STATUS_COMPLETED)
         self.assertEqual(completed.json()["done_list"], ["生成答案"])
         self.assertEqual(completed.json()["answer"], "已生成答案")
         self.assertEqual(completed.json()["image_urls"], ["https://example.test/image.png"])
+        self.assertEqual(completed.json()["sources"], [{
+            "source_type": "local",
+            "source_id": "chunk:101",
+            "title": None,
+            "section_title": None,
+            "excerpt": "K1 手册片段",
+            "url": None,
+        }])
 
         failed_service = QueryService()
         with patch("knowledge.services.query_service.query_app.invoke", side_effect=RuntimeError("模拟任务失败")):

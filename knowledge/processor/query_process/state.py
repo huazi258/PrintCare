@@ -40,6 +40,7 @@ class QueryGraphState(TypedDict):
     reranked_docs: list           # 重排序后的文档
     prompt: str                   # 提示词
     answer: str                   # 答案
+    sources: list                 # 进入本轮 QA 生成上下文的结构化来源
     item_names: List[str]         # 商品名称
     rewritten_query: str          # 重写查询
     history: list                 # 历史对话
@@ -75,6 +76,7 @@ DEFAULT_STATE: QueryGraphState = {
     "reranked_docs": [],
     "prompt": "",
     "answer": "",
+    "sources": [],
     "item_names": [],
     "rewritten_query": "",
     "history": [],

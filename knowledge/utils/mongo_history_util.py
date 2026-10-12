@@ -23,6 +23,7 @@ def save_chat_message(
         text: str,
         rewritten_query: str = "",
         item_names: List[str] = None,
+        sources: List[Dict[str, Any]] = None,
         message_id: str = None,
 ) -> str:
     """
@@ -35,6 +36,7 @@ def save_chat_message(
         text:
         rewritten_query:
         item_names:
+        sources:
         message_id:
 
     Returns:
@@ -55,6 +57,8 @@ def save_chat_message(
         "item_names": item_names or [],  # 商品名列表
         "ts": ts,  # 时间戳
     }
+    if sources:
+        document["sources"] = sources
 
     # 2. 获取集合[客户端 db collection]
     collection = _get_collection()

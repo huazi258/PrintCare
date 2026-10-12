@@ -265,10 +265,19 @@ def register_routers(app: FastAPI):
 
         # 5.获取答案
         answer = service.get_answer(task_id)
+        sources = get_task_result(task_id, "sources", [])
+        if not isinstance(sources, list):
+            sources = []
 
         # 6.返回答案
         return _visitor_response(
-            {"message": "处理完成", "session_id": session_id, "answer": answer, "task_id": task_id},
+            {
+                "message": "处理完成",
+                "session_id": session_id,
+                "answer": answer,
+                "sources": sources,
+                "task_id": task_id,
+            },
             visitor_id,
             created_visitor,
         )
@@ -284,12 +293,16 @@ def register_routers(app: FastAPI):
         image_urls = get_task_result(task_id, "image_urls", [])
         if not isinstance(image_urls, list):
             image_urls = []
+        sources = get_task_result(task_id, "sources", [])
+        if not isinstance(sources, list):
+            sources = []
 
         return {
             **task_info,
             "answer": get_task_result(task_id, "answer", ""),
             "error": get_task_result(task_id, "error", None),
             "image_urls": image_urls,
+            "sources": sources,
             "diagnosis": get_task_result(task_id, "diagnosis", None),
         }
 

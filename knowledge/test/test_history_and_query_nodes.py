@@ -87,6 +87,26 @@ class HistoryAndQueryNodeTestCase(unittest.TestCase):
         get_recent.assert_called_once_with("session", "visitor-a", 10)
         self.assertEqual([item["text"] for item in history], ["old", "new"])
 
+    def test_query_service_returns_sources_saved_with_the_matching_assistant_message(self):
+        sources = [{
+            "source_type": "web",
+            "source_id": "https://example.test/k1",
+            "excerpt": "网页资料",
+            "url": "https://example.test/k1",
+        }]
+        records = [
+            {"_id": "user", "session_id": "session", "role": "user", "text": "问题", "ts": 1},
+            {
+                "_id": "assistant", "session_id": "session", "role": "assistant", "text": "回答",
+                "sources": sources, "ts": 2,
+            },
+        ]
+        with patch("knowledge.services.query_service.get_recent_messages", return_value=records):
+            history = QueryService().get_history("session", "visitor-a", 10)
+
+        self.assertEqual(history[0]["sources"], [])
+        self.assertEqual(history[1]["sources"], sources)
+
     def test_new_history_message_persists_visitor_ownership(self):
         collection = FakeHistoryCollection([])
         with patch.object(mongo_history_util, "_get_collection", return_value=collection):
@@ -96,6 +116,21 @@ class HistoryAndQueryNodeTestCase(unittest.TestCase):
 
         self.assertEqual(collection.records[0]["session_id"], "session")
         self.assertEqual(collection.records[0]["visitor_id"], "visitor-a")
+
+    def test_assistant_history_persists_only_its_own_structured_sources(self):
+        collection = FakeHistoryCollection([])
+        sources = [{
+            "source_type": "local",
+            "source_id": "chunk:101",
+            "title": "Creality K1 用户手册",
+            "excerpt": "热床调平说明",
+        }]
+        with patch.object(mongo_history_util, "_get_collection", return_value=collection):
+            mongo_history_util.save_chat_message(
+                "session", "visitor-a", "assistant", "回答", sources=sources
+            )
+
+        self.assertEqual(collection.records[0]["sources"], sources)
 
     def test_item_name_backfill_only_targets_empty_or_missing_item_names(self):
         collection = FakeHistoryCollection([])
@@ -222,7 +257,12 @@ class HistoryAndQueryNodeTestCase(unittest.TestCase):
             "visitor_id": "visitor-a",
             "is_stream": True,
             "original_query": "K1 如何清洁平台？",
-            "reranked_docs": [],
+            "reranked_docs": [{
+                "content": "使用无绒布清洁打印平台。",
+                "source_type": "local",
+                "source_id": "chunk:101",
+                "file_title": "Creality K1 用户手册",
+            }],
         }
 
         with patch(
@@ -232,13 +272,57 @@ class HistoryAndQueryNodeTestCase(unittest.TestCase):
             "knowledge.processor.query_process.nodes.answer_output.save_chat_message"
         ) as save_history, patch(
             "knowledge.processor.query_process.nodes.answer_output.push_sse_event"
-        ):
+        ) as push_event:
             result = node.process(state)
 
         self.assertEqual(result["answer"], "第一段第二段")
         self.assertEqual(task_util.get_task_result("stream-task", "answer"), "第一段第二段")
+        expected_sources = [{
+            "source_type": "local",
+            "source_id": "chunk:101",
+            "title": "Creality K1 用户手册",
+            "excerpt": "使用无绒布清洁打印平台。",
+        }]
+        self.assertEqual(task_util.get_task_result("stream-task", "sources"), expected_sources)
         self.assertEqual(save_history.call_count, 2)
         self.assertTrue(all(call.kwargs["visitor_id"] == "visitor-a" for call in save_history.call_args_list))
+        self.assertEqual(save_history.call_args_list[-1].kwargs["sources"], expected_sources)
+        push_event.assert_any_call(
+            "stream-task",
+            "final",
+            {"answer": "第一段第二段", "sources": expected_sources},
+        )
+
+    def test_context_sources_exclude_docs_outside_budget_or_without_real_identifiers(self):
+        node = AnswerOutputNode()
+        selected = {
+            "content": "selected local excerpt",
+            "source_type": "local",
+            "source_id": "chunk:101",
+            "file_title": "K1 手册",
+            "title": "调平",
+        }
+        excluded = {
+            "content": "this document is outside the prompt budget",
+            "source_type": "web",
+            "source_id": "https://example.test/outside",
+            "url": "https://example.test/outside",
+        }
+        untraceable = {"content": "untraceable local document", "source_type": "local"}
+
+        first_entry, _ = node._format_reranked_docs([selected], 10_000)
+        context, _, sources = node._format_context_sources(
+            [selected, excluded, untraceable], len(first_entry)
+        )
+
+        self.assertEqual(context, first_entry)
+        self.assertEqual(sources, [{
+            "source_type": "local",
+            "source_id": "chunk:101",
+            "title": "K1 手册",
+            "excerpt": "selected local excerpt",
+            "section_title": "调平",
+        }])
 
 
 if __name__ == "__main__":

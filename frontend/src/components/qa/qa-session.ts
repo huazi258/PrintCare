@@ -1,5 +1,5 @@
-import type { QueryHistoryItem, QueryRequest } from "@/types/api";
-import type { QaMessage } from "@/types/qa";
+import type { QaSourceReference, QueryHistoryItem, QueryRequest } from "@/types/api";
+import type { QaMessage, QaSource } from "@/types/qa";
 
 export const QA_SESSION_STORAGE_KEY = "printcare.qa.session_id";
 export const QA_SESSION_INDEX_STORAGE_KEY = "printcare.qa.session_index";
@@ -64,16 +64,41 @@ export function buildQaRequest(query: string, sessionId?: string): QueryRequest 
   };
 }
 
+export function qaSourcesFromReferences(references: QaSourceReference[] | undefined): QaSource[] {
+  if (!Array.isArray(references)) return [];
+  return references.flatMap((reference) => {
+    if (
+      (reference.source_type !== "local" && reference.source_type !== "web")
+      || !reference.source_id?.trim()
+      || !reference.excerpt?.trim()
+    ) return [];
+
+    const title = reference.title?.trim();
+    const sectionTitle = reference.section_title?.trim();
+    const url = reference.url?.trim();
+    return [{
+      sourceId: reference.source_id,
+      type: reference.source_type,
+      ...(title ? { title } : {}),
+      ...(sectionTitle ? { sectionTitle } : {}),
+      excerpt: reference.excerpt,
+      ...(reference.source_type === "web" && url ? { href: url } : {}),
+    }];
+  });
+}
+
 export function historyToQaMessages(items: QueryHistoryItem[]): QaMessage[] {
   return items.flatMap((item, index) => {
     if ((item.role !== "user" && item.role !== "assistant") || !item.text.trim()) {
       return [];
     }
 
+    const sources = qaSourcesFromReferences(item.sources);
     return [{
       id: item._id || `history-${index}`,
       role: item.role,
       content: item.text,
+      ...(sources.length > 0 ? { sources } : {}),
     }];
   });
 }
@@ -95,8 +120,11 @@ export function replaceAssistantAnswer(
   messages: QaMessage[],
   assistantMessageId: string,
   answer: string,
+  sources?: QaSource[],
 ): QaMessage[] {
   return messages.map((message) => (
-    message.id === assistantMessageId ? { ...message, content: answer } : message
+    message.id === assistantMessageId
+      ? { ...message, content: answer, ...(sources ? { sources } : {}) }
+      : message
   ));
 }

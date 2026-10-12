@@ -9,6 +9,7 @@ import {
   appendAssistantDelta,
   buildQaRequest,
   historyToQaMessages,
+  qaSourcesFromReferences,
   QA_SESSION_STORAGE_KEY,
   registerQaSession,
   replaceAssistantAnswer,
@@ -37,14 +38,17 @@ const previewAnswer = `## 首层附着排查思路
 
 const previewSources = [
   {
+    sourceId: "preview-local-1",
     title: "模拟本地资料（开发预览）",
     type: "local" as const,
-    detail: "仅用于验证来源组件的展开样式，不对应真实设备文档或知识库切片。",
+    excerpt: "仅用于验证来源组件的展开样式，不对应真实设备文档或知识库切片。",
   },
   {
+    sourceId: "https://example.test/preview-source",
     title: "模拟联网来源（开发预览）",
     type: "web" as const,
-    detail: "仅用于验证来源类型标签，不表示诊断或问答已经执行联网检索。",
+    excerpt: "仅用于验证来源类型标签，不表示诊断或问答已经执行联网检索。",
+    href: "https://example.test/preview-source",
   },
 ];
 
@@ -123,7 +127,12 @@ export function QaPage() {
       const status = await printCareApi.getQueryStatus(taskId);
       if (!mountedRef.current || activeTaskIdRef.current !== taskId) return true;
       if (status.answer) {
-        setLiveMessages((current) => replaceAssistantAnswer(current, assistantMessageId, status.answer));
+        setLiveMessages((current) => replaceAssistantAnswer(
+          current,
+          assistantMessageId,
+          status.answer,
+          qaSourcesFromReferences(status.sources),
+        ));
         setStatusNotice("已通过任务状态恢复完整回答。");
         setSubmissionError(null);
         finishTask(taskId);
@@ -260,10 +269,15 @@ export function QaPage() {
             scheduleStatusFallback(startedTaskId, assistantMessageId);
           }
         },
-        onFinal: ({ answer }) => {
+        onFinal: ({ answer, sources }) => {
           if (!finishTask(startedTaskId)) return;
           if (answer) {
-            setLiveMessages((current) => replaceAssistantAnswer(current, assistantMessageId, answer));
+            setLiveMessages((current) => replaceAssistantAnswer(
+              current,
+              assistantMessageId,
+              answer,
+              qaSourcesFromReferences(sources),
+            ));
           }
           setProgressMessage(null);
         },

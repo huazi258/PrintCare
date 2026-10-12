@@ -1,9 +1,11 @@
 export type QaMessageRole = "user" | "assistant";
 
 export interface QaSource {
-  title: string;
+  sourceId: string;
+  title?: string;
+  sectionTitle?: string;
   type: "local" | "web";
-  detail?: string;
+  excerpt?: string;
   href?: string;
 }
 

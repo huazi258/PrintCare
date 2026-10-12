@@ -128,6 +128,7 @@ class QueryService:
                 "text": r.get("text", ""),  # 问题
                 "rewritten_query": r.get("rewritten_query", ""),  # 问题重写
                 "item_names": r.get("item_names", []),  # 问题答案
+                "sources": r.get("sources", []) if isinstance(r.get("sources"), list) else [],
                 "ts": r.get("ts")
             } for r in records
         ]

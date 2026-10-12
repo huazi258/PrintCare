@@ -18,7 +18,17 @@ export interface QueryResponse {
   message: string;
   session_id: string;
   answer: string;
+  sources?: QaSourceReference[];
   task_id: string;
+}
+
+export interface QaSourceReference {
+  source_type: "local" | "web";
+  source_id: string;
+  title?: string | null;
+  section_title?: string | null;
+  excerpt: string;
+  url?: string | null;
 }
 
 export interface StreamSubmitResponse {
@@ -37,6 +47,7 @@ export interface TaskStatus {
   answer: string;
   error: string | null;
   image_urls: string[];
+  sources: QaSourceReference[];
   diagnosis: DiagnosisSession | null;
 }
 
@@ -47,6 +58,7 @@ export interface QueryHistoryItem {
   text: string;
   rewritten_query: string;
   item_names: string[];
+  sources?: QaSourceReference[];
   ts: string | number | null;
 }
 
@@ -192,6 +204,7 @@ export interface DeltaEvent {
 
 export interface FinalEvent {
   answer?: string;
+  sources?: QaSourceReference[];
   status?: string;
   diagnosis_id?: string;
   idempotent?: boolean;

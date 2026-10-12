@@ -41,11 +41,19 @@ describe("subscribeToTask", () => {
     expect(source?.url).toBe("/api/core/stream/task%20%2F%201");
     source?.emit("progress", { stage: "retrieval", message: "正在检索" });
     source?.emit("diagnosis", { diagnosis_id: "d-1", status: "in_progress" });
-    source?.emit("final", { status: "completed", diagnosis_id: "d-1" });
+    source?.emit("final", {
+      status: "completed",
+      diagnosis_id: "d-1",
+      sources: [{ source_type: "local", source_id: "chunk:101", excerpt: "K1 手册片段" }],
+    });
 
     expect(onProgress).toHaveBeenCalledWith({ stage: "retrieval", message: "正在检索" });
     expect(onDiagnosis).toHaveBeenCalledWith({ diagnosis_id: "d-1", status: "in_progress" });
-    expect(onFinal).toHaveBeenCalledWith({ status: "completed", diagnosis_id: "d-1" });
+    expect(onFinal).toHaveBeenCalledWith({
+      status: "completed",
+      diagnosis_id: "d-1",
+      sources: [{ source_type: "local", source_id: "chunk:101", excerpt: "K1 手册片段" }],
+    });
     expect(source?.closed).toBe(true);
   });
 
