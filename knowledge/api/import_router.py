@@ -1,10 +1,12 @@
+import hmac
+import os
 import os.path
 from typing import Optional
 
 import uvicorn
 
 from fastapi.responses import FileResponse
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile, BackgroundTasks
+from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile, BackgroundTasks
 from fastapi.params import Depends
 from starlette.middleware.cors import CORSMiddleware
 from starlette.staticfiles import StaticFiles
@@ -15,6 +17,22 @@ from knowledge.core.paths import get_front_page_dir
 from knowledge.schema.upload_schema import UploadResponse, TaskStatusResponse
 from knowledge.services.import_file_service import ImportFileService
 from knowledge.utils.task_util import get_task_info
+
+
+ADMIN_API_KEY_ENV = "PRINTCARE_ADMIN_API_KEY"
+ADMIN_API_KEY_HEADER = "X-PrintCare-Admin-Key"
+
+
+def require_admin_access(
+    admin_key: Optional[str] = Header(default=None, alias=ADMIN_API_KEY_HEADER),
+) -> None:
+    """Require the shared, server-configured key for import-service operations."""
+    configured_key = os.getenv(ADMIN_API_KEY_ENV)
+    if not configured_key:
+        raise HTTPException(status_code=503, detail="管理接口未配置管理员密钥")
+
+    if admin_key is None or not hmac.compare_digest(admin_key, configured_key):
+        raise HTTPException(status_code=401, detail="管理员密钥无效")
 
 
 # 1.创建fastapi实例
@@ -59,6 +77,7 @@ def register_router(app):
 
     @app.post("/upload", response_model=UploadResponse)
     async def upload_file(backGround_tasks: BackgroundTasks,
+                          _: None = Depends(require_admin_access),
                           importFileService: ImportFileService = Depends(get_import_file_service),
                           device_id: Optional[str] = Form(default=None),
                           file: UploadFile = File(...)):
@@ -92,7 +111,7 @@ def register_router(app):
     # file: UploadFile 参数类型注解，UploadFile 是 FastAPI 提供的文件对象，包含文件名、内容等
     # = File(...) 告诉 FastAPI 这个参数来自请求体中的文件字段（... 表示必填）
     @app.get("/status/{task_id}", response_model=TaskStatusResponse)
-    async def get_status(task_id: str):
+    async def get_status(task_id: str, _: None = Depends(require_admin_access)):
         """Get 请求处理    路径参数自动注入"""
         # return {
         #     "status": "processing",

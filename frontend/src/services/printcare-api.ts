@@ -13,6 +13,14 @@ import type {
   UploadResponse,
 } from "@/types/api";
 
+const ADMIN_API_KEY_HEADER = "X-PrintCare-Admin-Key";
+
+function withAdminKey(adminKey: string, options?: RequestOptions): RequestOptions {
+  const headers = new Headers(options?.headers);
+  headers.set(ADMIN_API_KEY_HEADER, adminKey);
+  return { ...options, headers };
+}
+
 export const printCareApi = {
   getCoreOpenApi: (options?: RequestOptions) =>
     apiClient.get<Record<string, unknown>>("core", "/openapi.json", options),
@@ -65,12 +73,16 @@ export const printCareApi = {
       options,
     ),
 
-  uploadDocument: (file: File, deviceId: string, options?: RequestOptions) => {
+  uploadDocument: (file: File, deviceId: string, adminKey: string, options?: RequestOptions) => {
     const formData = new FormData();
     formData.set("device_id", deviceId);
     formData.set("file", file);
-    return apiClient.post<UploadResponse>("admin", "/upload", formData, options);
+    return apiClient.post<UploadResponse>("admin", "/upload", formData, withAdminKey(adminKey, options));
   },
-  getImportStatus: (taskId: string, options?: RequestOptions) =>
-    apiClient.get<ImportTaskStatus>("admin", `/status/${encodeURIComponent(taskId)}`, options),
+  getImportStatus: (taskId: string, adminKey: string, options?: RequestOptions) =>
+    apiClient.get<ImportTaskStatus>(
+      "admin",
+      `/status/${encodeURIComponent(taskId)}`,
+      withAdminKey(adminKey, options),
+    ),
 };

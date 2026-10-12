@@ -1,4 +1,5 @@
 import copy
+import os
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -57,6 +58,12 @@ class FakeSchemaClient:
 
 class ImportDeviceAttributionTestCase(unittest.TestCase):
     def setUp(self):
+        self.admin_key = "test-admin-key"
+        self.environment_patcher = patch.dict(
+            os.environ,
+            {"PRINTCARE_ADMIN_API_KEY": self.admin_key},
+        )
+        self.environment_patcher.start()
         self.service = FakeImportFileService()
         self.app = create_app()
         self.app.dependency_overrides[get_import_file_service] = lambda: self.service
@@ -64,11 +71,16 @@ class ImportDeviceAttributionTestCase(unittest.TestCase):
 
     def tearDown(self):
         self.app.dependency_overrides.clear()
+        self.environment_patcher.stop()
+
+    def admin_headers(self, key=None):
+        return {"X-PrintCare-Admin-Key": key if key is not None else self.admin_key}
 
     def test_upload_without_device_id_uses_the_legacy_k1_default(self):
         response = self.client.post(
             "/upload",
             files={"file": ("manual.md", b"# K1 manual", "text/markdown")},
+            headers=self.admin_headers(),
         )
 
         self.assertEqual(response.status_code, 200)
@@ -81,6 +93,7 @@ class ImportDeviceAttributionTestCase(unittest.TestCase):
             "/upload",
             data={"device_id": "creality-k1"},
             files={"file": ("manual.md", b"# K1 manual", "text/markdown")},
+            headers=self.admin_headers(),
         )
 
         self.assertEqual(response.status_code, 200)
@@ -92,12 +105,52 @@ class ImportDeviceAttributionTestCase(unittest.TestCase):
             "/upload",
             data={"device_id": "creality-k1-max"},
             files={"file": ("manual.md", b"# K1 Max manual", "text/markdown")},
+            headers=self.admin_headers(),
         )
 
         self.assertEqual(response.status_code, 422)
         self.assertIn("仅支持 Creality K1", response.json()["detail"])
         self.assertEqual(self.service.process_calls, [])
         self.assertEqual(self.service.graph_calls, [])
+
+    def test_management_routes_reject_missing_or_invalid_key_before_side_effects(self):
+        missing_upload = self.client.post(
+            "/upload",
+            files={"file": ("manual.md", b"# K1 manual", "text/markdown")},
+        )
+        invalid_upload = self.client.post(
+            "/upload",
+            files={"file": ("manual.md", b"# K1 manual", "text/markdown")},
+            headers=self.admin_headers("wrong-key"),
+        )
+        missing_status = self.client.get("/status/task-k1")
+        invalid_status = self.client.get("/status/task-k1", headers=self.admin_headers("wrong-key"))
+
+        self.assertEqual(missing_upload.status_code, 401)
+        self.assertEqual(invalid_upload.status_code, 401)
+        self.assertEqual(missing_status.status_code, 401)
+        self.assertEqual(invalid_status.status_code, 401)
+        self.assertEqual(self.service.process_calls, [])
+        self.assertEqual(self.service.graph_calls, [])
+
+    def test_management_routes_reject_requests_when_key_is_not_configured(self):
+        with patch.dict(os.environ, {"PRINTCARE_ADMIN_API_KEY": ""}):
+            upload_response = self.client.post(
+                "/upload",
+                files={"file": ("manual.md", b"# K1 manual", "text/markdown")},
+                headers=self.admin_headers(),
+            )
+            status_response = self.client.get("/status/task-k1", headers=self.admin_headers())
+
+        self.assertEqual(upload_response.status_code, 503)
+        self.assertEqual(status_response.status_code, 503)
+        self.assertEqual(self.service.process_calls, [])
+        self.assertEqual(self.service.graph_calls, [])
+
+    def test_management_status_accepts_the_configured_key(self):
+        response = self.client.get("/status/task-k1", headers=self.admin_headers())
+
+        self.assertEqual(response.status_code, 200)
 
     def test_service_rejects_unsupported_devices_before_its_first_side_effect(self):
         service = ImportFileService()
