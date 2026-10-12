@@ -32,13 +32,16 @@ class FakeCursor:
 
 class FakeHistoryCollection:
     def __init__(self, records):
-        self.records = records
+        self.records = list(records)
         self.update_filter = None
         self.update_document = None
 
     def find(self, query):
         return FakeCursor(
-            record for record in self.records if record.get("session_id") == query["session_id"]
+            record
+            for record in self.records
+            if record.get("session_id") == query["session_id"]
+            and record.get("visitor_id") == query["visitor_id"]
         )
 
     def update_many(self, query, update):
@@ -46,36 +49,53 @@ class FakeHistoryCollection:
         self.update_document = update
         return SimpleNamespace(modified_count=1)
 
+    def insert_one(self, document):
+        self.records.append(dict(document))
+        return SimpleNamespace(inserted_id=ObjectId())
+
 
 class HistoryAndQueryNodeTestCase(unittest.TestCase):
     def test_recent_messages_uses_recent_limit_but_returns_chronological_order(self):
         collection = FakeHistoryCollection(
             [
-                {"session_id": "session", "text": "one", "ts": 1},
-                {"session_id": "session", "text": "two", "ts": 2},
-                {"session_id": "session", "text": "three", "ts": 3},
-                {"session_id": "session", "text": "four", "ts": 4},
-                {"session_id": "other", "text": "other", "ts": 5},
+                {"session_id": "session", "visitor_id": "visitor-a", "text": "one", "ts": 1},
+                {"session_id": "session", "visitor_id": "visitor-a", "text": "two", "ts": 2},
+                {"session_id": "session", "visitor_id": "visitor-a", "text": "three", "ts": 3},
+                {"session_id": "session", "visitor_id": "visitor-a", "text": "four", "ts": 4},
+                {"session_id": "session", "visitor_id": "visitor-b", "text": "other visitor", "ts": 5},
             ]
         )
         with patch.object(mongo_history_util, "_get_collection", return_value=collection):
-            self.assertEqual(mongo_history_util.get_recent_messages("session", 2), [
-                {"session_id": "session", "text": "three", "ts": 3},
-                {"session_id": "session", "text": "four", "ts": 4},
+            self.assertEqual(mongo_history_util.get_recent_messages("session", "visitor-a", 2), [
+                {"session_id": "session", "visitor_id": "visitor-a", "text": "three", "ts": 3},
+                {"session_id": "session", "visitor_id": "visitor-a", "text": "four", "ts": 4},
             ])
-            self.assertEqual([item["text"] for item in mongo_history_util.get_recent_messages("session", 10)], [
+            self.assertEqual([item["text"] for item in mongo_history_util.get_recent_messages("session", "visitor-a", 10)], [
                 "one", "two", "three", "four"
             ])
-            self.assertEqual(mongo_history_util.get_recent_messages("missing", 10), [])
+            self.assertEqual(mongo_history_util.get_recent_messages("session", "visitor-b", 10)[0]["text"], "other visitor")
+            self.assertEqual(mongo_history_util.get_recent_messages("missing", "visitor-a", 10), [])
+            self.assertEqual(mongo_history_util.get_recent_messages("session", "", 10), [])
 
     def test_query_service_preserves_history_order(self):
         records = [
             {"_id": "first", "session_id": "session", "role": "user", "text": "old", "ts": 1},
             {"_id": "second", "session_id": "session", "role": "assistant", "text": "new", "ts": 2},
         ]
-        with patch("knowledge.services.query_service.get_recent_messages", return_value=records):
-            history = QueryService().get_history("session", 10)
+        with patch("knowledge.services.query_service.get_recent_messages", return_value=records) as get_recent:
+            history = QueryService().get_history("session", "visitor-a", 10)
+        get_recent.assert_called_once_with("session", "visitor-a", 10)
         self.assertEqual([item["text"] for item in history], ["old", "new"])
+
+    def test_new_history_message_persists_visitor_ownership(self):
+        collection = FakeHistoryCollection([])
+        with patch.object(mongo_history_util, "_get_collection", return_value=collection):
+            mongo_history_util.save_chat_message(
+                "session", "visitor-a", "user", "K1 如何调平？"
+            )
+
+        self.assertEqual(collection.records[0]["session_id"], "session")
+        self.assertEqual(collection.records[0]["visitor_id"], "visitor-a")
 
     def test_item_name_backfill_only_targets_empty_or_missing_item_names(self):
         collection = FakeHistoryCollection([])
@@ -199,6 +219,7 @@ class HistoryAndQueryNodeTestCase(unittest.TestCase):
         state = {
             "task_id": "stream-task",
             "session_id": "stream-session",
+            "visitor_id": "visitor-a",
             "is_stream": True,
             "original_query": "K1 如何清洁平台？",
             "reranked_docs": [],
@@ -217,6 +238,7 @@ class HistoryAndQueryNodeTestCase(unittest.TestCase):
         self.assertEqual(result["answer"], "第一段第二段")
         self.assertEqual(task_util.get_task_result("stream-task", "answer"), "第一段第二段")
         self.assertEqual(save_history.call_count, 2)
+        self.assertTrue(all(call.kwargs["visitor_id"] == "visitor-a" for call in save_history.call_args_list))
 
 
 if __name__ == "__main__":

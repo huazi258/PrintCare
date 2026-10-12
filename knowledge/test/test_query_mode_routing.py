@@ -15,18 +15,22 @@ from knowledge.services.query_service import QueryService
 class RecordingQueryService:
     def __init__(self):
         self.created_task_ids = []
+        self.created_task_requests = []
         self.run_calls = []
+        self.run_kwargs = []
 
     def generate_session_id(self):
         return "generated-session"
 
-    def generate_task_id(self):
+    def generate_task_id(self, visitor_id=None, mode="qa"):
         task_id = f"task-{len(self.created_task_ids) + 1}"
         self.created_task_ids.append(task_id)
+        self.created_task_requests.append((visitor_id, mode))
         return task_id
 
-    def run_query_graph(self, *args):
+    def run_query_graph(self, *args, **kwargs):
         self.run_calls.append(args)
+        self.run_kwargs.append(kwargs)
 
     def get_answer(self, _task_id):
         return "mock answer"
@@ -65,6 +69,15 @@ class QueryModeRoutingTestCase(unittest.TestCase):
         self.assertEqual(default_response.status_code, 200)
         self.assertEqual(explicit_response.status_code, 200)
         self.assertEqual([call[-1] for call in self.service.run_calls], ["qa", "qa"])
+
+    def test_qa_creation_sets_cookie_and_passes_visitor_to_the_graph(self):
+        response = self.client.post("/query", json=self._payload())
+
+        visitor_id = response.cookies.get("printcare_visitor_id")
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(visitor_id)
+        self.assertEqual(self.service.created_task_requests, [(visitor_id, "qa")])
+        self.assertEqual(self.service.run_kwargs, [{"visitor_id": visitor_id}])
 
     def test_invalid_mode_is_rejected_by_request_contract(self):
         response = self.client.post("/query", json=self._payload(mode="unsupported"))

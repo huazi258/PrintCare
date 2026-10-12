@@ -60,11 +60,13 @@ class AnswerOutputNode(BaseNode):
     def _write_history(self, state: QueryGraphState):
         """将用户问题和组手回答写入 MongoDB 历史记录"""
         session_id = state.get("session_id")
+        visitor_id = state.get("visitor_id", "")
         rewritten_query = state.get("rewritten_query", "") or state.get("original_query", "")
         item_names = state.get("item_names") or []
         try:
             # 1.写用户问题
             save_chat_message(session_id=session_id,
+                              visitor_id=visitor_id,
                               role="user",
                               text=state["original_query"],
                               rewritten_query=rewritten_query,
@@ -74,6 +76,7 @@ class AnswerOutputNode(BaseNode):
             if state.get("answer"):
                 save_chat_message(
                     session_id=session_id,
+                    visitor_id=visitor_id,
                     role="assistant",
                     text=state["answer"],
                     rewritten_query=rewritten_query,

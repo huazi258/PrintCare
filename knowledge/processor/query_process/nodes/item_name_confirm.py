@@ -276,9 +276,10 @@ class ItemNameConfirmNode(BaseNode):
         # 1.1. 获取原始问题
         original_query = state.get("original_query")
         session_id = state.get("session_id")
+        visitor_id = state.get("visitor_id", "")
 
         # 1.2获取历史会话并拼串
-        chat_history = get_recent_messages(session_id)
+        chat_history = get_recent_messages(session_id, visitor_id)
 
         history_text = ""
         for msg in chat_history:

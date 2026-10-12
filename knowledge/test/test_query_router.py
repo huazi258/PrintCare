@@ -12,19 +12,26 @@ from knowledge.utils import task_util
 class FakeQueryService:
     def __init__(self):
         self.sessions = {
-            "target-session": [{"role": "user", "text": "target"}],
-            "other-session": [{"role": "user", "text": "other"}],
+            "target-session": {"visitor_id": "visitor-a", "items": [{"role": "user", "text": "target"}]},
+            "other-session": {"visitor_id": "visitor-b", "items": [{"role": "user", "text": "other"}]},
+            "legacy-session": {"visitor_id": None, "items": [{"role": "user", "text": "legacy"}]},
         }
         self.history_calls = []
         self.clear_calls = []
 
-    def get_history(self, session_id, limit):
-        self.history_calls.append((session_id, limit))
-        return self.sessions.get(session_id, [])[:limit]
+    def get_history(self, session_id, visitor_id, limit):
+        self.history_calls.append((session_id, visitor_id, limit))
+        session = self.sessions.get(session_id)
+        if session is None or session["visitor_id"] != visitor_id:
+            return []
+        return session["items"][:limit]
 
-    def clear_history(self, session_id):
-        self.clear_calls.append(session_id)
-        return len(self.sessions.pop(session_id, []))
+    def clear_history(self, session_id, visitor_id):
+        self.clear_calls.append((session_id, visitor_id))
+        session = self.sessions.get(session_id)
+        if session is None or session["visitor_id"] != visitor_id:
+            return 0
+        return len(self.sessions.pop(session_id)["items"])
 
 
 class QueryRouterTestCase(unittest.TestCase):
@@ -83,6 +90,7 @@ class QueryRouterTestCase(unittest.TestCase):
         self.assertIn("不存在或已失效", response.json()["detail"])
 
     def test_history_get_is_read_only_and_delete_only_clears_target_session(self):
+        self.client.cookies.set("printcare_visitor_id", "visitor-a")
         get_response = self.client.get("/history/target-session")
         self.assertEqual(get_response.status_code, 200)
         self.assertEqual(get_response.json()["items"], [{"role": "user", "text": "target"}])
@@ -91,9 +99,24 @@ class QueryRouterTestCase(unittest.TestCase):
         delete_response = self.client.delete("/history/target-session")
         self.assertEqual(delete_response.status_code, 200)
         self.assertEqual(delete_response.json()["deleted_count"], 1)
-        self.assertEqual(self.service.clear_calls, ["target-session"])
+        self.assertEqual(self.service.clear_calls, [("target-session", "visitor-a")])
         self.assertNotIn("target-session", self.service.sessions)
         self.assertIn("other-session", self.service.sessions)
+
+    def test_history_rejects_cross_visitor_legacy_and_missing_cookie_access(self):
+        attacker_headers = {"X-Visitor-ID": "visitor-b"}
+        read_response = self.client.get("/history/target-session", headers=attacker_headers)
+        delete_response = self.client.delete("/history/target-session", headers=attacker_headers)
+        legacy_response = self.client.get("/history/legacy-session", headers={"X-Visitor-ID": "visitor-a"})
+        with TestClient(self.app) as missing_visitor_client:
+            missing_visitor = missing_visitor_client.get("/history/target-session")
+
+        self.assertEqual(read_response.status_code, 404)
+        self.assertEqual(delete_response.status_code, 404)
+        self.assertEqual(legacy_response.status_code, 404)
+        self.assertEqual(missing_visitor.status_code, 422)
+        self.assertIn("target-session", self.service.sessions)
+        self.assertIn("legacy-session", self.service.sessions)
 
     def test_openapi_exposes_correct_methods_and_existing_query_routes(self):
         paths = self.client.get("/openapi.json").json()["paths"]

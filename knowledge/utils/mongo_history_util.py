@@ -18,6 +18,7 @@ def _get_collection() -> Collection:
 
 def save_chat_message(
         session_id: str,
+        visitor_id: str,
         role: str,
         text: str,
         rewritten_query: str = "",
@@ -29,6 +30,7 @@ def save_chat_message(
     新增(message_id如果为空) or  修改（message_id不为空）
     Args:
         session_id:
+        visitor_id:
         role:
         text:
         rewritten_query:
@@ -38,11 +40,15 @@ def save_chat_message(
     Returns:
 
     """
+    if not isinstance(visitor_id, str) or not visitor_id.strip():
+        raise ValueError("缺少历史记录所属匿名访客标识")
+
     ts = datetime.now().timestamp()
 
     # 1. 构建记录结构
     document = {
         "session_id": session_id,  # 会话id
+        "visitor_id": visitor_id.strip(),  # 服务端匿名访客归属
         "role": role,  # 角色
         "text": text,  # 内容
         "rewritten_query": rewritten_query,  # 重写后问题
@@ -63,11 +69,13 @@ def save_chat_message(
         return str(result.inserted_id)
 
 
-def get_recent_messages(session_id: str, limit: int = 10) -> List[Dict[str, Any]]:
+def get_recent_messages(session_id: str, visitor_id: str, limit: int = 10) -> List[Dict[str, Any]]:
+    if not isinstance(visitor_id, str) or not visitor_id.strip():
+        return []
     try:
         cursor = (
             _get_collection()
-            .find({"session_id": session_id})
+            .find({"session_id": session_id, "visitor_id": visitor_id.strip()})
             .sort("ts", DESCENDING)
             .limit(limit)
         )
@@ -78,10 +86,12 @@ def get_recent_messages(session_id: str, limit: int = 10) -> List[Dict[str, Any]
         return []
 
 
-def clear_history(session_id: str) -> int:
+def clear_history(session_id: str, visitor_id: str) -> int:
+    if not isinstance(visitor_id, str) or not visitor_id.strip():
+        return 0
     try:
-        result = _get_collection().delete_many({"session_id": session_id})
-        logger.info(f"Deleted {result.deleted_count} messages for session {session_id}")
+        result = _get_collection().delete_many({"session_id": session_id, "visitor_id": visitor_id.strip()})
+        logger.info("Deleted %s messages for visitor-owned session", result.deleted_count)
         return result.deleted_count
     except Exception as e:
         logger.error(f"Error clearing history for session {session_id}: {e}")

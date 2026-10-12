@@ -47,6 +47,7 @@ class QueryService:
             "clarification_count": session.get("clarification_count", 0),
             "diagnosis_status": session.get("status", "in_progress"),
             "session_id": "",
+            "visitor_id": visitor_id,
             "task_id": task_id,
             "is_stream": is_stream,
             "device_id": device.device_id,
@@ -55,7 +56,16 @@ class QueryService:
             "mode": "diagnosis",
         }
 
-    def run_query_graph(self, session_id, task_id, user_query: str, is_stream: bool, device_id=None, mode="qa"):
+    def run_query_graph(
+        self,
+        session_id,
+        task_id,
+        user_query: str,
+        is_stream: bool,
+        device_id=None,
+        mode="qa",
+        visitor_id: str | None = None,
+    ):
         """执行LangGraph 查询流程
         注意：流式模式的 SSE 队列由路由层在调用前创建
         """
@@ -74,6 +84,7 @@ class QueryService:
             default_state = {
                 "original_query": user_query,
                 "session_id": session_id,
+                "visitor_id": visitor_id or "",
                 "task_id": task_id,
                 "is_stream": is_stream,
                 "device_id": device.device_id,
@@ -107,8 +118,8 @@ class QueryService:
     def get_answer(self, task_id: str) -> str:
         return get_task_result(task_id, "answer", "")
 
-    def get_history(self, session_id: str, limit: int) -> List[Dict[str, Any]]:
-        records = get_recent_messages(session_id, limit)
+    def get_history(self, session_id: str, visitor_id: str, limit: int) -> List[Dict[str, Any]]:
+        records = get_recent_messages(session_id, visitor_id, limit)
         return [
             {
                 "_id": str(r.get("_id", "")),
@@ -121,8 +132,8 @@ class QueryService:
             } for r in records
         ]
 
-    def clear_history(self, session_id: str) -> int:
-        return clear_history(session_id)
+    def clear_history(self, session_id: str, visitor_id: str) -> int:
+        return clear_history(session_id, visitor_id)
 
     def generate_task_id(self, visitor_id: str | None = None, mode: str = "qa"):
         task_id = str(uuid.uuid4().hex[:8])

@@ -21,7 +21,7 @@ from knowledge.schema.diagnosis_schema import (
     DiagnosisFeedbackRequest,
     DiagnosisStartRequest,
 )
-from knowledge.schema.query_schema import QueryRequest, QueryResponse, QueryTaskStatusResponse, StreamSubmitResponse
+from knowledge.schema.query_schema import QueryRequest, QueryTaskStatusResponse
 from knowledge.services.diagnosis_service import DiagnosisExecutionError, DiagnosisService
 from knowledge.services.query_service import QueryService
 from knowledge.utils.sse_util import create_sse_queue, sse_generator
@@ -216,11 +216,13 @@ def register_routers(app: FastAPI):
                 response_payload["active_task_id"] = result.active_task_id
             return _visitor_response(response_payload, visitor_id, created_visitor)
 
+        visitor_id, created_visitor = _visitor_id(http_request, allow_create=True)
+
         # 1.获取session_id
         session_id = request.session_id or service.generate_session_id()
 
         # 2.获取任务Id
-        task_id = service.generate_task_id()
+        task_id = service.generate_task_id(visitor_id=visitor_id, mode="qa")
 
         # 3.开启流式
         if request.is_stream:
@@ -236,29 +238,40 @@ def register_routers(app: FastAPI):
                 True,
                 device.device_id,
                 request.mode,
+                visitor_id=visitor_id,
             )
 
             # 3.3 返回响应
-            return StreamSubmitResponse(message="查询流程已启动，请稍候...", task_id=task_id, session_id=session_id)
+            return _visitor_response(
+                {"message": "查询流程已启动，请稍候...", "task_id": task_id, "session_id": session_id},
+                visitor_id,
+                created_visitor,
+            )
 
         # 4.非流式
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(
             None,
-            service.run_query_graph,
-            session_id,
-            task_id,
-            request.query,
-            False,
-            device.device_id,
-            request.mode,
+            lambda: service.run_query_graph(
+                session_id,
+                task_id,
+                request.query,
+                False,
+                device.device_id,
+                request.mode,
+                visitor_id=visitor_id,
+            ),
         )
 
         # 5.获取答案
         answer = service.get_answer(task_id)
 
         # 6.返回答案
-        return QueryResponse(message="处理完成", session_id=session_id, answer=answer,task_id=task_id)
+        return _visitor_response(
+            {"message": "处理完成", "session_id": session_id, "answer": answer, "task_id": task_id},
+            visitor_id,
+            created_visitor,
+        )
 
     @app.get("/status/{task_id}", response_model=QueryTaskStatusResponse)
     async def get_status(task_id: str, request: Request):
@@ -281,16 +294,33 @@ def register_routers(app: FastAPI):
         }
 
     @app.get("/history/{session_id}")
-    async def get_history(session_id: str, limit: int = 50, service: QueryService = Depends(get_query_service)):
+    async def get_history(
+        session_id: str,
+        http_request: Request,
+        limit: int = 50,
+        service: QueryService = Depends(get_query_service),
+    ):
+        visitor_id, _ = _visitor_id(http_request, allow_create=False)
         try:
-            history_items = service.get_history(session_id, limit)
+            history_items = service.get_history(session_id, visitor_id, limit)
+            if not history_items:
+                raise HTTPException(status_code=404, detail="会话历史不存在或不属于当前访客")
             return {"session_id": session_id, "items": history_items}
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"获取历史记录异常：str(e)")
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail="获取历史记录失败") from exc
 
     @app.delete("/history/{session_id}")
-    async def clear_chat_history(session_id: str, service: QueryService = Depends(get_query_service)):
-        count = service.clear_history(session_id)
+    async def clear_chat_history(
+        session_id: str,
+        http_request: Request,
+        service: QueryService = Depends(get_query_service),
+    ):
+        visitor_id, _ = _visitor_id(http_request, allow_create=False)
+        count = service.clear_history(session_id, visitor_id)
+        if count <= 0:
+            raise HTTPException(status_code=404, detail="会话历史不存在或不属于当前访客")
         return {"message": "历史记录清除成功", "deleted_count": count}
 
     @app.get("/stream/{task_id}")

@@ -26,12 +26,12 @@ class RecordingQueryService:
     def generate_session_id(self):
         return "generated-session"
 
-    def generate_task_id(self):
+    def generate_task_id(self, visitor_id=None, mode="qa"):
         task_id = f"task-{len(self.created_task_ids) + 1}"
         self.created_task_ids.append(task_id)
         return task_id
 
-    def run_query_graph(self, *args):
+    def run_query_graph(self, *args, **kwargs):
         self.run_calls.append(args)
 
     def get_answer(self, task_id):

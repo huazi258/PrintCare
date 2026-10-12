@@ -15,6 +15,7 @@ class QueryGraphState(TypedDict):
     包含整个查询流程中传递的所有数据。
     """
     session_id: str              # 会话ID
+    visitor_id: str              # 服务端匿名访客归属
     task_id: str                  # 任务ID
     message_id: str               # 消息ID
     original_query: str           # 原始查询
@@ -49,6 +50,7 @@ class QueryGraphState(TypedDict):
 
 DEFAULT_STATE: QueryGraphState = {
     "session_id": "",
+    "visitor_id": "",
     "task_id": "",
     "message_id": "",
     "original_query": "",
