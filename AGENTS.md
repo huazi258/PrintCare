@@ -2,7 +2,7 @@
 
 > 适用范围：本仓库根目录及所有子目录。  
 > 文件定位：长期有效的 AI Coding 协作规则，不是某一轮的开发任务书，也不是项目已完成情况的证明。  
-> 当前项目处于二次开发设计阶段；**除非用户在当前任务中明确授权，否则不要修改业务代码或启动开发。**
+> T0–T3 的主要开发已完成，当前进入 T4 收尾阶段。T3 已获项目管理层面的附带限制放行，但尚未严格通过完整端到端验收：真实前端 `answer → pending_verification → resolved/unresolved` 回归和活跃 SSE 物理断连恢复仍待验证。**除非用户在当前任务中明确授权，否则不要修改业务代码或启动开发。**
 
 ## 1. 先理解项目，再行动
 
@@ -37,12 +37,12 @@ PrintCare AI 基于公开课程项目「掌柜智库」进行二次开发，目�
 ## 3. 现有代码地图（改动前需以最新仓库复核）
 
 - `knowledge/processor/import_process/`：文档导入 LangGraph，包括 PDF/Markdown、图片处理、切分、商品识别、Embedding、Milvus 入库。
-- `knowledge/processor/query_process/`：查询 LangGraph，商品确认、向量检索、HyDE、Web MCP、RRF、Rerank、答案生成。
+- `knowledge/processor/query_process/`：查询 LangGraph，商品确认、向量检索、HyDE、RRF、Rerank、QA 输出及诊断决策/校验；仅 `qa` 模式调度 Web MCP。
 - `knowledge/processor/query_process/nodes/rerank.py`：产出 `reranked_docs`，是两种业务共用的关键证据入口。
-- `knowledge/api/`、`knowledge/services/`、`knowledge/schema/`：FastAPI 路由、业务服务、请求与响应模型。
-- `knowledge/utils/`：MongoDB 历史、Milvus、任务状态和 SSE 等辅助能力。
-- `knowledge/front/chat.html`、`knowledge/front/import.html`：旧版原生 HTML 页面；新前端稳定前保留作回归对照。
-- `frontend/`：**计划新增** React + Vite + TypeScript 前端，不要假设目录现已存在。
+- `knowledge/api/`、`knowledge/services/`、`knowledge/schema/`：两个 FastAPI 服务的路由、业务服务及请求/响应模型；诊断会话、反馈与恢复由查询服务提供。
+- `knowledge/utils/`：MongoDB 问答历史与诊断会话、Milvus、进程内任务状态及 SSE 等辅助能力。
+- `knowledge/front/chat.html`、`knowledge/front/import.html`：保留的旧版原生 HTML 页面，作为回归对照，不等同于当前产品前端。
+- `frontend/`：已实现的 React + Vite + TypeScript 前端，含工作台、QA、诊断、历史、知识库管理路由，以及统一 HTTP/SSE 封装和开发代理。
 
 原查询、上传服务分别运行于 8001、8000 端口（以实际运行配置为准）。初期尽量保留两个 FastAPI 服务，使用前端开发代理统一入口；**不要只因重做 UI 就合并后端或更换数据库**。
 
@@ -84,7 +84,7 @@ PrintCare AI 基于公开课程项目「掌柜智库」进行二次开发，目�
 
 ## 5. 前端规范
 
-- 新前端使用 **React + Vite + TypeScript + Tailwind CSS + shadcn/ui**；建议 React Router 管理路由。不得擅自替换为 Next.js 或引入第二套服务端框架。
+- 当前前端使用 **React + Vite + TypeScript + Tailwind CSS + shadcn/ui**，并由 React Router 管理路由。不得擅自替换为 Next.js 或引入第二套服务端框架。
 - 目标页面：工作台、知识问答、智能诊断、历史记录、知识库管理。尽量复用通用布局、设备信息、引用卡片、加载/错误状态和表单组件。
 - 问答保持流式对话体验；诊断突出**分轮问题卡片、批量选择、资料依据与结果反馈**，不是简单聊天窗口换皮。
 - 诊断 UI 必须覆盖等待、错误、资料不足、终止、恢复和重复提交等状态；尽量提供基础键盘操作、清晰标签及桌面/移动端可用布局。
