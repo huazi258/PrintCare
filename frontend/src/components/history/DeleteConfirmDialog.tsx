@@ -4,11 +4,13 @@ import { Button } from "@/components/ui/button";
 
 type DeleteConfirmDialogProps = {
   recordTitle: string;
+  errorMessage?: string;
+  isDeleting?: boolean;
   onCancel: () => void;
   onConfirm: () => void;
 };
 
-export function DeleteConfirmDialog({ recordTitle, onCancel, onConfirm }: DeleteConfirmDialogProps) {
+export function DeleteConfirmDialog({ recordTitle, errorMessage, isDeleting = false, onCancel, onConfirm }: DeleteConfirmDialogProps) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/30 p-4" role="presentation">
       <section role="dialog" aria-modal="true" aria-labelledby="delete-history-title" className="w-full max-w-md rounded-xl border border-border bg-card p-5 shadow-xl">
@@ -18,9 +20,10 @@ export function DeleteConfirmDialog({ recordTitle, onCancel, onConfirm }: Delete
         </div>
         <h2 id="delete-history-title" className="mt-4 text-lg font-semibold text-foreground">删除这条历史记录？</h2>
         <p className="mt-2 break-words text-sm leading-6 text-muted-foreground">“{recordTitle}”将从历史记录中删除，删除后无法恢复。</p>
+        {errorMessage ? <p role="alert" className="mt-3 rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">{errorMessage}</p> : null}
         <div className="mt-6 flex justify-end gap-3">
-          <Button type="button" variant="outline" onClick={onCancel}>取消</Button>
-          <Button type="button" onClick={onConfirm} className="bg-destructive hover:bg-destructive/90">确认删除</Button>
+          <Button type="button" variant="outline" disabled={isDeleting} onClick={onCancel}>取消</Button>
+          <Button type="button" disabled={isDeleting} onClick={onConfirm} className="bg-destructive hover:bg-destructive/90">{isDeleting ? "正在删除…" : "确认删除"}</Button>
         </div>
       </section>
     </div>

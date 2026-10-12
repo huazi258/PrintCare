@@ -3,7 +3,10 @@ import {
   appendAssistantDelta,
   buildQaRequest,
   historyToQaMessages,
+  parseQaSessionIndex,
+  removeQaSessionIndex,
   replaceAssistantAnswer,
+  upsertQaSessionIndex,
 } from "./qa-session";
 
 describe("QA 会话状态辅助函数", () => {
@@ -39,5 +42,19 @@ describe("QA 会话状态辅助函数", () => {
 
     expect(streaming[1].content).toBe("第一段");
     expect(completed[1].content).toBe("完整回答");
+  });
+
+  it("keeps a browser-local QA session index without claiming it is a server list", () => {
+    const indexed = upsertQaSessionIndex([], "session-a", 10);
+    const refreshed = upsertQaSessionIndex(indexed, "session-a", 20);
+    const second = upsertQaSessionIndex(refreshed, "session-b", 30);
+
+    expect(second).toEqual([
+      { sessionId: "session-b", createdAt: 30, updatedAt: 30 },
+      { sessionId: "session-a", createdAt: 10, updatedAt: 20 },
+    ]);
+    expect(parseQaSessionIndex(JSON.stringify(second))).toEqual(second);
+    expect(parseQaSessionIndex("not-json")).toEqual([]);
+    expect(removeQaSessionIndex(second, "session-a")).toEqual([{ sessionId: "session-b", createdAt: 30, updatedAt: 30 }]);
   });
 });

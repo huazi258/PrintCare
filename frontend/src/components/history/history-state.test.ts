@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { HistoryRecord } from "./history-state";
-import { deletePreviewRecord, filterHistoryRecords, recordDetailKind } from "./history-state";
+import { deletePreviewRecord, filterHistoryRecords, recordDetailKind, removeHistoryRecord, sortHistoryRecords } from "./history-state";
 
 const records: HistoryRecord[] = [
   {
@@ -9,6 +9,7 @@ const records: HistoryRecord[] = [
     type: "qa",
     title: "如何完成 K1 的首次打印？",
     createdAt: "开发预览时间",
+    sessionId: "qa-preview",
     messages: [],
   },
   {
@@ -51,5 +52,15 @@ describe("history preview state", () => {
   it("only removes a preview record after a confirmed local deletion", () => {
     expect(deletePreviewRecord(records, "diagnosis-preview").map((record) => record.id)).toEqual(["qa-preview"]);
     expect(records).toHaveLength(2);
+  });
+
+  it("sorts real records by their persisted timestamps and removes a selected record after deletion", () => {
+    const diagnosisRecord = records[1] as Extract<HistoryRecord, { type: "diagnosis" }>;
+    const dated = [
+      { ...records[0], createdAt: "2026-10-10T10:00:00Z" },
+      { ...diagnosisRecord, session: { ...diagnosisRecord.session, updated_at: "2026-10-11T10:00:00Z" } },
+    ];
+    expect(sortHistoryRecords(dated).map((record) => record.id)).toEqual(["diagnosis-preview", "qa-preview"]);
+    expect(removeHistoryRecord(dated, "qa-preview").map((record) => record.id)).toEqual(["diagnosis-preview"]);
   });
 });

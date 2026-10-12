@@ -10,6 +10,7 @@ import {
   buildQaRequest,
   historyToQaMessages,
   QA_SESSION_STORAGE_KEY,
+  registerQaSession,
   replaceAssistantAnswer,
 } from "@/components/qa/qa-session";
 import { PageContainer } from "@/components/PageContainer";
@@ -181,6 +182,7 @@ export function QaPage() {
 
     const controller = new AbortController();
     setSessionId(storedSessionId);
+    registerQaSession(storedSessionId);
     setIsRestoring(true);
     printCareApi.getQueryHistory(storedSessionId, { signal: controller.signal })
       .then((history) => {
@@ -242,6 +244,7 @@ export function QaPage() {
       if (typeof response.session_id === "string" && response.session_id) {
         setSessionId(response.session_id);
         window.localStorage.setItem(QA_SESSION_STORAGE_KEY, response.session_id);
+        registerQaSession(response.session_id);
       }
 
       const startedTaskId = response.task_id;

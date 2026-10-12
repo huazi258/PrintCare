@@ -47,7 +47,7 @@ export interface QueryHistoryItem {
   text: string;
   rewritten_query: string;
   item_names: string[];
-  ts: number | null;
+  ts: string | number | null;
 }
 
 export interface QueryHistoryResponse {

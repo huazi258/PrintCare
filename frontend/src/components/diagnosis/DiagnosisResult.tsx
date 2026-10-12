@@ -123,12 +123,12 @@ function AnswerResult({
       <section className={`rounded-xl border p-5 ${statusContent.className}`} aria-live="polite">
         <h3 className="flex items-center gap-2 text-base font-semibold"><StatusIcon className="size-5" aria-hidden="true" />{statusContent.title}</h3>
         <p className="mt-2 text-sm leading-6 text-foreground/80">{statusContent.description}</p>
-        {status === "pending_verification" ? (
+        {status === "pending_verification" && onFeedback ? (
           <div className="mt-4 flex flex-wrap gap-3">
-            <Button type="button" disabled={isFeedbackSubmitting || !onFeedback} onClick={() => onFeedback?.("resolved")}>
+            <Button type="button" disabled={isFeedbackSubmitting} onClick={() => onFeedback("resolved")}>
               {isFeedbackSubmitting ? "正在提交…" : "已解决"}
             </Button>
-            <Button type="button" variant="outline" disabled={isFeedbackSubmitting || !onFeedback} onClick={() => onFeedback?.("unresolved")}>
+            <Button type="button" variant="outline" disabled={isFeedbackSubmitting} onClick={() => onFeedback("unresolved")}>
               未解决
             </Button>
           </div>
