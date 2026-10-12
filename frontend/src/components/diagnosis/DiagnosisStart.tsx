@@ -1,10 +1,11 @@
-import { ShieldAlert } from "lucide-react";
+import { LoaderCircle, ShieldAlert } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 
 type DiagnosisStartProps = {
   problem: string;
   errorMessage?: string;
+  isProcessing?: boolean;
   onProblemChange: (value: string) => void;
   onStart: () => void;
 };
@@ -12,6 +13,7 @@ type DiagnosisStartProps = {
 export function DiagnosisStart({
   problem,
   errorMessage,
+  isProcessing = false,
   onProblemChange,
   onStart,
 }: DiagnosisStartProps) {
@@ -41,6 +43,7 @@ export function DiagnosisStart({
           aria-describedby="diagnosis-problem-help"
           placeholder="请尽量具体地描述打印过程中遇到的问题…"
           rows={7}
+          disabled={isProcessing}
           className="mt-4 min-h-40 w-full resize-y rounded-[10px] border border-input bg-background px-3 py-3 text-sm leading-6 text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
         />
         {errorMessage ? (
@@ -53,8 +56,9 @@ export function DiagnosisStart({
             <ShieldAlert className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden="true" />
             <p>请勿在未确认安全边界时进行高温、电气或拆机操作；必要时请联系官方支持。</p>
           </div>
-          <Button type="button" onClick={onStart} disabled={!problem.trim()} className="min-w-28">
-            开始诊断
+          <Button type="button" onClick={onStart} disabled={!problem.trim() || isProcessing} className="min-w-28">
+            {isProcessing ? <LoaderCircle className="size-4 animate-spin" aria-hidden="true" /> : null}
+            {isProcessing ? "正在启动…" : "开始诊断"}
           </Button>
         </div>
       </div>

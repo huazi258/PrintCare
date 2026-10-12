@@ -13,6 +13,9 @@ import type {
 type DiagnosisResultProps = {
   decision: DiagnosisDecision;
   status: DiagnosisStatus;
+  isFeedbackSubmitting?: boolean;
+  onFeedback?: (status: "resolved" | "unresolved") => void;
+  onResumeUnresolved?: () => void;
 };
 
 function DiagnosisEvidence({ evidence }: { evidence?: EvidenceExcerpt[] }) {
@@ -37,7 +40,19 @@ function DiagnosisEvidence({ evidence }: { evidence?: EvidenceExcerpt[] }) {
   );
 }
 
-function AnswerResult({ decision, status }: { decision: DiagnosisAnswerDecision; status: DiagnosisStatus }) {
+function AnswerResult({
+  decision,
+  status,
+  isFeedbackSubmitting = false,
+  onFeedback,
+  onResumeUnresolved,
+}: {
+  decision: DiagnosisAnswerDecision;
+  status: DiagnosisStatus;
+  isFeedbackSubmitting?: boolean;
+  onFeedback?: (status: "resolved" | "unresolved") => void;
+  onResumeUnresolved?: () => void;
+}) {
   const evidence = Array.from(new Map([
     ...decision.conclusion_evidence,
     ...decision.recommendations.flatMap((recommendation) => recommendation.evidence),
@@ -110,8 +125,19 @@ function AnswerResult({ decision, status }: { decision: DiagnosisAnswerDecision;
         <p className="mt-2 text-sm leading-6 text-foreground/80">{statusContent.description}</p>
         {status === "pending_verification" ? (
           <div className="mt-4 flex flex-wrap gap-3">
-            <Button type="button" disabled title="反馈接口将在后续联调接入">已解决（待联调）</Button>
-            <Button type="button" variant="outline" disabled title="反馈接口将在后续联调接入">未解决（待联调）</Button>
+            <Button type="button" disabled={isFeedbackSubmitting || !onFeedback} onClick={() => onFeedback?.("resolved")}>
+              {isFeedbackSubmitting ? "正在提交…" : "已解决"}
+            </Button>
+            <Button type="button" variant="outline" disabled={isFeedbackSubmitting || !onFeedback} onClick={() => onFeedback?.("unresolved")}>
+              未解决
+            </Button>
+          </div>
+        ) : null}
+        {status === "unresolved" && onResumeUnresolved ? (
+          <div className="mt-4">
+            <Button type="button" variant="outline" disabled={isFeedbackSubmitting} onClick={onResumeUnresolved}>
+              {isFeedbackSubmitting ? "正在请求继续诊断…" : "请求继续诊断"}
+            </Button>
           </div>
         ) : null}
       </section>
@@ -147,9 +173,9 @@ function InsufficientResult({ decision }: { decision: DiagnosisInsufficientDecis
   );
 }
 
-export function DiagnosisResult({ decision, status }: DiagnosisResultProps) {
+export function DiagnosisResult({ decision, status, isFeedbackSubmitting, onFeedback, onResumeUnresolved }: DiagnosisResultProps) {
   if (decision.action === "answer") {
-    return <AnswerResult decision={decision} status={status} />;
+    return <AnswerResult decision={decision} status={status} isFeedbackSubmitting={isFeedbackSubmitting} onFeedback={onFeedback} onResumeUnresolved={onResumeUnresolved} />;
   }
 
   if (decision.action === "insufficient") {
