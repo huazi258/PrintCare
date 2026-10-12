@@ -2,7 +2,7 @@ import { AlertCircle, CheckCircle2, LoaderCircle } from "lucide-react";
 
 import type { ImportTaskStatus } from "@/types/api";
 
-import { importStatusLabel } from "./admin-state";
+import { importStatusLabel, isImportTaskFailure, isImportTaskTerminal } from "./admin-state";
 
 type ImportTaskProgressProps = {
   task: ImportTaskStatus;
@@ -10,8 +10,8 @@ type ImportTaskProgressProps = {
 };
 
 export function ImportTaskProgress({ task, errorMessage }: ImportTaskProgressProps) {
-  const isError = task.status === "failed" || task.status === "error";
-  const isComplete = task.status === "completed" || task.status === "success";
+  const isError = isImportTaskFailure(task.status);
+  const isComplete = isImportTaskTerminal(task.status) && !isError;
   const StatusIcon = isError ? AlertCircle : isComplete ? CheckCircle2 : LoaderCircle;
   const allSteps = [...task.done_list, ...task.running_list];
 
