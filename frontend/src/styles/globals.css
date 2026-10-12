@@ -50,6 +50,7 @@ a {
   color: var(--foreground);
   font-size: 0.95rem;
   line-height: 1.8;
+  overflow-wrap: anywhere;
 }
 
 .qa-markdown > :first-child {
@@ -76,7 +77,7 @@ a {
 .qa-markdown ul { list-style: disc; }
 .qa-markdown ol { list-style: decimal; }
 .qa-markdown li + li { margin-top: 0.35rem; }
-.qa-markdown a { color: var(--primary); text-decoration: underline; text-underline-offset: 0.2rem; }
+.qa-markdown a { color: var(--primary); overflow-wrap: anywhere; text-decoration: underline; text-underline-offset: 0.2rem; }
 .qa-markdown :not(pre) > code { border-radius: 0.25rem; background: var(--muted); padding: 0.1rem 0.3rem; font-size: 0.85em; }
 .qa-markdown pre { margin: 1rem 0; overflow-x: auto; border-radius: 0.6rem; background: var(--foreground); padding: 1rem; color: var(--primary-foreground); }
 .qa-markdown pre code { font-size: 0.82rem; line-height: 1.65; }

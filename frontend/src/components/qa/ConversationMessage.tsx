@@ -20,7 +20,7 @@ export function ConversationMessage({ message, isGenerating, onCopy }: Conversat
         {isAssistant ? "PrintCare AI" : "你"}
       </div>
       <div className="mt-4 pl-0 sm:pl-9">
-        {isAssistant ? <AnswerContent content={message.content} isGenerating={isGenerating} onCopy={onCopy} /> : <p className="whitespace-pre-wrap text-base leading-7 text-foreground">{message.content}</p>}
+        {isAssistant ? <AnswerContent content={message.content} isGenerating={isGenerating} onCopy={isGenerating ? undefined : onCopy} /> : <p className="whitespace-pre-wrap text-base leading-7 text-foreground">{message.content}</p>}
         {isAssistant && !isGenerating && <SourceReferences sources={message.sources} />}
       </div>
     </article>

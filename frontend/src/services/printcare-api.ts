@@ -5,6 +5,7 @@ import type {
   DiagnosisListResponse,
   DiagnosisSession,
   ImportTaskStatus,
+  QueryHistoryResponse,
   QueryRequest,
   QueryResponse,
   StreamSubmitResponse,
@@ -23,7 +24,7 @@ export const printCareApi = {
   getQueryStatus: (taskId: string, options?: RequestOptions) =>
     apiClient.get<TaskStatus>("core", `/status/${encodeURIComponent(taskId)}`, options),
   getQueryHistory: (sessionId: string, options?: RequestOptions) =>
-    apiClient.get<{ session_id: string; items: unknown[] }>(
+    apiClient.get<QueryHistoryResponse>(
       "core",
       `/history/${encodeURIComponent(sessionId)}`,
       options,

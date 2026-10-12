@@ -10,7 +10,7 @@ interface AnswerContentProps {
 }
 
 export function AnswerContent({ content, isGenerating = false, onCopy }: AnswerContentProps) {
-  if (isGenerating) {
+  if (isGenerating && !content) {
     return (
       <div aria-live="polite" className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
         <LoaderCircle aria-hidden="true" className="animate-spin text-primary" size={17} />
@@ -52,6 +52,12 @@ export function AnswerContent({ content, isGenerating = false, onCopy }: AnswerC
           {content}
         </ReactMarkdown>
       </div>
+      {isGenerating && (
+        <p aria-live="polite" className="mt-4 flex items-center gap-2 text-xs text-muted-foreground">
+          <LoaderCircle aria-hidden="true" className="animate-spin text-primary" size={14} />
+          正在继续生成…
+        </p>
+      )}
     </div>
   );
 }

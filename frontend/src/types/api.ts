@@ -40,6 +40,21 @@ export interface TaskStatus {
   diagnosis: DiagnosisSession | null;
 }
 
+export interface QueryHistoryItem {
+  _id: string;
+  session_id: string;
+  role: string;
+  text: string;
+  rewritten_query: string;
+  item_names: string[];
+  ts: number | null;
+}
+
+export interface QueryHistoryResponse {
+  session_id: string;
+  items: QueryHistoryItem[];
+}
+
 export interface UploadResponse {
   message: string;
   task_id: string;
@@ -164,8 +179,11 @@ export interface DiagnosisEndRequest {
 }
 
 export interface ProgressEvent {
-  stage: string;
-  message: string;
+  status?: string;
+  done_list?: string[];
+  running_list?: string[];
+  stage?: string;
+  message?: string;
 }
 
 export interface DeltaEvent {
