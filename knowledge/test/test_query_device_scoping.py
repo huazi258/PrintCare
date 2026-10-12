@@ -14,8 +14,8 @@ from knowledge.utils.milvus_util import create_hybrid_search_requests
 
 K1_DEVICE_ID = "creality-k1"
 K1_ITEM_NAME = "Creality K1"
-EXPECTED_EXPR = "device_id == {device_id} and item_name in {item_names}"
-EXPECTED_PARAMS = {"device_id": K1_DEVICE_ID, "item_names": [K1_ITEM_NAME]}
+EXPECTED_EXPR = 'device_id == "creality-k1" and item_name in ["Creality K1"]'
+EXPECTED_PARAMS = {}
 
 
 class RecordingQueryService:
@@ -196,7 +196,7 @@ class QueryDeviceScopingTestCase(unittest.TestCase):
 
         state = VectorSearchNode().process(self._state())
 
-        self.assertNotIn("embedding_chunks", state)
+        self.assertEqual(state, {})
         self.assertEqual(execute_search.call_count, 1)
 
 

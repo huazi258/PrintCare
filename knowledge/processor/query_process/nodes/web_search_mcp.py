@@ -22,7 +22,7 @@ class WebSearchMcpNode(BaseNode):
         # 必须在参数校验和 MCP 客户端创建之前返回。
         if state.get("mode", "qa") != "qa":
             self.logger.warning("当前模式禁止 Web MCP 检索")
-            return state
+            return {}
 
         # 1.参数校验
         validated_rewritten_query, validate_item_names = self._validate_query_inputs(state)
@@ -31,7 +31,7 @@ class WebSearchMcpNode(BaseNode):
         mcp_result = asyncio.run(self._create_execute_web_search(validated_rewritten_query))
 
         if not mcp_result:
-            return state
+            return {}
 
         # 3.返回状态
         return {"web_search_docs": mcp_result}
@@ -70,8 +70,6 @@ class WebSearchMcpNode(BaseNode):
             # 2.调用工具获取结果
             execute_tool_result = await client.call_tool(tool_name="bailian_web_search",
                                                          arguments={"query": validated_rewritten_query, "count": 3})
-
-            print(execute_tool_result)
 
             """
             meta=None content=[TextContent(type='text', text='{"pages":[

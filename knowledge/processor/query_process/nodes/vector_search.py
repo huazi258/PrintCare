@@ -29,21 +29,21 @@ class VectorSearchNode(BaseNode):
             bge_m3_client = AIClients.get_bge_m3_client()
         except ConnectionError as e:
             self.logger.error(f"BGE-M3嵌入模型获取失败: {e}")
-            return state
+            return {}
 
         # 3.获取Milvus客户端
         try:
             milvus_client = StorageClients.get_milvus_client()
         except ConnectionError as e:
             self.logger.error(f"Milvus客户端获取失败: {e}")
-            return state
+            return {}
 
         # 4.生成混合向量   稠密向量 + 稀疏向量
         try:
             embed_query = generate_bge_m3_hybrid_vectors(bge_m3_client, [validated_query],is_query=True)
         except Exception as e:
             self.logger.error(f"问题[{validated_query}],向量生成失败: {e}")
-            return state
+            return {}
 
         # 5.构建过滤条件
         expr, expr_params = item_names_filter(validate_item_names, device_id)
@@ -67,12 +67,13 @@ class VectorSearchNode(BaseNode):
 
         if not hybrid_search_resp or not hybrid_search_resp[0]:
             self.logger.error(f"问题[{validated_query}],混合检索数据不存在")
-            return state
+            return {}
 
-        state['embedding_chunks'] = hybrid_search_resp[0]
         self.logger.info(f"问题[{validated_query}],混合检索数据成功：{hybrid_search_resp[0]}")
-        # 8.返回结果
-        return state
+        # Parallel LangGraph branches must return only their own update. Returning
+        # the full input state causes unrelated scalar fields (for example
+        # ``session_id``) to be written by multiple search branches at once.
+        return {"embedding_chunks": hybrid_search_resp[0]}
 
     def _validate_state(self, state: QueryGraphState) -> Tuple[str, List[str], str]:
         """校验输入参数"""

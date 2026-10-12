@@ -216,8 +216,8 @@ class QueryModeRoutingTestCase(unittest.TestCase):
         ) as execute_web_search:
             diagnosis_state = {**input_state, "mode": "diagnosis"}
             invalid_mode_state = {**input_state, "mode": "unsupported"}
-            self.assertIs(node.process(diagnosis_state), diagnosis_state)
-            self.assertIs(node.process(invalid_mode_state), invalid_mode_state)
+            self.assertEqual(node.process(diagnosis_state), {})
+            self.assertEqual(node.process(invalid_mode_state), {})
 
         client_factory.assert_not_called()
         execute_web_search.assert_not_awaited()
@@ -229,7 +229,7 @@ class QueryModeRoutingTestCase(unittest.TestCase):
             result = node.process(input_state)
 
         execute.assert_awaited_once_with("打印失败")
-        self.assertIs(result, input_state)
+        self.assertEqual(result, {})
 
     def test_rerank_excludes_injected_web_docs_for_diagnosis_only(self):
         state = {

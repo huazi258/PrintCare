@@ -96,6 +96,8 @@ class DiagnosisDecisionNode(BaseNode):
             "三轮追问上限" in error for error in attempted_errors
         ):
             return self._set_candidate(state, self._round_limit_decision())
+        if any("重复已回答的问题" in error for error in attempted_errors):
+            return self._set_candidate(state, self._repeated_question_decision())
         if model_failure:
             return self._set_system_error(state, "model_unavailable")
         return self._set_system_error(state, "invalid_model_output")
@@ -228,6 +230,15 @@ class DiagnosisDecisionNode(BaseNode):
             action="insufficient",
             reason="已达到三轮澄清上限，现有资料不足以形成符合约束的可靠结论。",
             next_steps=["请根据现有回答整理现象并联系官方支持，或补充可核对的 K1 资料。"],
+        )
+
+    @staticmethod
+    def _repeated_question_decision() -> DiagnosisInsufficientDecision:
+        """Fail closed when bounded repair still repeats an answered fact."""
+        return DiagnosisInsufficientDecision(
+            action="insufficient",
+            reason="后续追问重复已确认信息，现有资料不足以在不重复提问的前提下形成可靠结论。",
+            next_steps=["请根据已确认信息联系官方支持，或补充可核对的 K1 资料后重新诊断。"],
         )
 
     @staticmethod

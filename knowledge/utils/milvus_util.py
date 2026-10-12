@@ -1,5 +1,6 @@
 import os
 import logging
+import json
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -134,13 +135,18 @@ def item_names_filter(item_names: List[str], device_id: str) -> Tuple[str, Dict[
     """Build the mandatory server-owned device and item-name predicate.
 
     The same expression is supplied to both dense and sparse AnnSearchRequest
-    objects, ensuring Milvus filters candidates before hybrid ranking.
+    objects, ensuring Milvus filters candidates before hybrid ranking.  The
+    deployed Milvus version does not interpolate ``AnnSearchRequest``
+    ``expr_params`` placeholders for hybrid search, so serialize the
+    server-validated values directly into a Milvus expression.
     """
     if not device_id:
         raise ValueError("device_id 不能为空，不能执行未限定设备的检索")
     if not item_names:
         raise ValueError("item_names 不能为空，不能执行未限定设备的检索")
 
-    expr = "device_id == {device_id} and item_name in {item_names}"
-    expr_params = {"device_id": device_id, "item_names": item_names}
-    return expr, expr_params
+    expr = (
+        f"device_id == {json.dumps(device_id, ensure_ascii=False)} "
+        f"and item_name in {json.dumps(item_names, ensure_ascii=False)}"
+    )
+    return expr, {}

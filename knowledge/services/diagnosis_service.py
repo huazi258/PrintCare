@@ -266,6 +266,8 @@ class DiagnosisService:
     def session_payload(cls, session: dict[str, Any]) -> dict[str, Any]:
         """Return recoverable client state without storage internals or visitor ID."""
         decision = cls.decision_from_session(session)
+        execution = session.get("execution")
+        processing = isinstance(execution, dict)
         return {
             "diagnosis_id": session.get("diagnosis_id"),
             "device_id": session.get("device_id"),
@@ -280,6 +282,12 @@ class DiagnosisService:
             "feedback": session.get("feedback"),
             "created_at": session.get("created_at"),
             "updated_at": session.get("updated_at"),
+            # A persisted lease is the only reliable indication that this
+            # session is still being inferred after a page refresh.  Do not
+            # infer it merely from ``in_progress``: failed turns release the
+            # lease without advancing the session.
+            "processing": processing,
+            "active_task_id": execution.get("task_id") if processing else None,
         }
 
     @staticmethod

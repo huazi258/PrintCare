@@ -11,7 +11,6 @@ import {
   buildResumeUnresolvedRequest,
   createDiagnosisRequestId,
   DIAGNOSIS_STORAGE_KEY,
-  isDiagnosing,
 } from "@/components/diagnosis/diagnosis-session";
 import { DiagnosisStart } from "@/components/diagnosis/DiagnosisStart";
 import { type DiagnosisSelections } from "@/components/diagnosis/diagnosis-state";
@@ -31,7 +30,7 @@ import type {
   QueryRequest,
 } from "@/types/api";
 
-type DiagnosisView = "start" | "questions" | "processing" | "result";
+type DiagnosisView = "start" | "questions" | "processing" | "result" | "recovery";
 
 const mockEvidence: EvidenceExcerpt = { source_id: "preview:local-evidence", excerpt: "开发预览的证据摘录，不对应实际设备资料。", support_text: "仅用于检查证据组件的展开和排版。" };
 const firstRoundQuestions: DiagnosisQuestion[] = [{ question_id: "build-plate-condition", text: "开始打印前，构建板表面是否已清洁且没有明显残留？", options: [{ option_id: "clean", text: "已清洁，没有明显残留", option_type: "normal" }, { option_id: "residue", text: "有可见残留或油污", option_type: "normal" }, { option_id: "unsure", text: "不确定", option_type: "uncertain" }], references: [mockEvidence] }];
@@ -61,7 +60,8 @@ function describeProgress(progress: ProgressEvent): string {
 
 function viewForSession(session: DiagnosisSession | null, isProcessing: boolean): DiagnosisView {
   if (!session) return "start";
-  if (isProcessing || isDiagnosing(session)) return "processing";
+  if (isProcessing || session.processing) return "processing";
+  if (session.status === "in_progress" && session.decision === null) return "recovery";
   if (session.decision?.action === "ask") return "questions";
   return "result";
 }
@@ -247,7 +247,7 @@ export function DiagnosisPage() {
   const round = isPreview ? previewRound : session?.clarification_round ?? 1;
   const askDecision = decision?.action === "ask" ? decision : null;
   const resultDecision = decision?.action === "answer" || decision?.action === "insufficient" ? decision : null;
-  const actualProcessing = isPreview ? previewState === "processing" : isProcessing || isDiagnosing(session);
+  const actualProcessing = isPreview ? previewState === "processing" : isProcessing || session?.processing === true;
 
   return <div className="mx-auto w-full max-w-[900px] pb-8">
     {isPreview ? <DiagnosisPreviewControls value={previewState} onChange={handlePreviewState} /> : null}
@@ -262,6 +262,7 @@ export function DiagnosisPage() {
       {view === "processing" ? <section className="rounded-xl border border-border bg-card p-8 text-center shadow-[0_2px_10px_rgba(27,36,48,0.04)]" aria-live="polite"><LoaderCircle className="mx-auto size-7 animate-spin text-primary" aria-hidden="true" /><h2 className="mt-4 text-lg font-semibold text-foreground">正在处理诊断信息</h2><p className="mt-2 text-sm leading-6 text-muted-foreground">{isPreview ? "开发预览仅展示处理中状态，未请求真实诊断服务。" : progressMessage ?? "正在根据本地设备资料生成下一步结果…"}</p></section> : askDecision ? <DiagnosisQuestionGroup questions={askDecision.questions} selections={selections} isProcessing={actualProcessing} onSelectionChange={(questionId, optionId) => setSelections((current) => ({ ...current, [questionId]: { optionId, supplementalNote: current[questionId]?.supplementalNote } }))} onSupplementalNoteChange={(questionId, supplementalNote) => setSelections((current) => ({ ...current, [questionId]: { optionId: current[questionId]?.optionId ?? "", supplementalNote } }))} onSubmit={handleAnswerSubmit} /> : null}
     </section> : null}
     {view === "result" && resultDecision && status ? <section aria-labelledby="diagnosis-result-title"><header className="mb-6 rounded-xl border border-border bg-card p-5 shadow-[0_2px_10px_rgba(27,36,48,0.04)]"><div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-sm font-medium text-primary">Creality K1</p><h1 id="diagnosis-result-title" className="mt-1 text-2xl font-semibold text-foreground">智能故障诊断</h1></div><button type="button" onClick={resetToStart} className="inline-flex items-center gap-1.5 self-start rounded-lg px-2 py-1.5 text-sm text-muted-foreground transition hover:bg-muted hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"><RotateCcw className="size-4" aria-hidden="true" />重新描述问题</button></div><div className="mt-5"><DiagnosisProgress round={round} stage="result" /></div></header><DiagnosisResult decision={resultDecision} status={status} isFeedbackSubmitting={isFeedbackSubmitting} onFeedback={isPreview ? undefined : handleFeedback} onResumeUnresolved={isPreview ? undefined : handleResumeUnresolved} /></section> : null}
+    {view === "recovery" ? <section aria-labelledby="diagnosis-recovery-title" className="rounded-xl border border-border bg-card p-6 shadow-[0_2px_10px_rgba(27,36,48,0.04)]"><p className="text-sm font-medium text-primary">Creality K1</p><h1 id="diagnosis-recovery-title" className="mt-1 text-xl font-semibold text-foreground">本次诊断未完成</h1><p className="mt-3 text-sm leading-6 text-muted-foreground">服务端未保留正在执行的诊断任务，也没有可展示的已验证结果。请重新描述问题后再试；不会将未完成会话误显示为诊断结论。</p><button type="button" onClick={resetToStart} className="mt-5 inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground transition hover:bg-muted focus:outline-none focus:ring-2 focus:ring-primary/30"><RotateCcw className="size-4" aria-hidden="true" />重新描述问题</button></section> : null}
     {errorMessage && view !== "start" ? <p role="alert" className="mt-4 rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">{errorMessage}</p> : null}
     {statusNotice ? <p aria-live="polite" className="mt-4 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-sm text-primary">{statusNotice}</p> : null}
     {isPreview ? <p className="mt-6 flex gap-2 text-xs leading-5 text-muted-foreground"><AlertCircle className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />开发预览数据只用于视觉与交互检查；正常页面只展示服务端已持久化的真实会话结果。</p> : null}

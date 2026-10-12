@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { subscribeToTask } from "@/services/sse";
+import { TASK_STREAM_INACTIVITY_TIMEOUT_MS, subscribeToTask } from "@/services/sse";
 
 class MockEventSource {
   public onerror: ((event: Event) => void) | null = null;
@@ -74,5 +74,26 @@ describe("subscribeToTask", () => {
 
     expect(source?.closed).toBe(true);
     expect(onNetworkError).toHaveBeenCalledOnce();
+  });
+
+  it("上游静默时会在有限等待后关闭连接并通知恢复逻辑", () => {
+    vi.useFakeTimers();
+    let source: MockEventSource | undefined;
+    const onNetworkError = vi.fn();
+
+    subscribeToTask(
+      "stalled-task",
+      { onNetworkError },
+      (url) => {
+        source = new MockEventSource(url);
+        return source as unknown as EventSource;
+      },
+    );
+
+    vi.advanceTimersByTime(TASK_STREAM_INACTIVITY_TIMEOUT_MS);
+
+    expect(source?.closed).toBe(true);
+    expect(onNetworkError).toHaveBeenCalledOnce();
+    vi.useRealTimers();
   });
 });

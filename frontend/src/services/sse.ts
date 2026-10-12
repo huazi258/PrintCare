@@ -25,6 +25,7 @@ export interface TaskStreamSubscription {
 export type EventSourceFactory = (url: string) => EventSource;
 
 const defaultEventSourceFactory: EventSourceFactory = (url) => new EventSource(url);
+export const TASK_STREAM_INACTIVITY_TIMEOUT_MS = 30_000;
 
 function parseJson<T>(event: MessageEvent<string>, onParseError?: EventHandler<Error>) {
   try {
@@ -50,17 +51,36 @@ export function subscribeToTask(
 ): TaskStreamSubscription {
   const source = eventSourceFactory(`/api/core/stream/${encodeURIComponent(taskId)}`);
   let closed = false;
+  let inactivityTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const clearInactivityTimer = () => {
+    if (inactivityTimer !== null) {
+      clearTimeout(inactivityTimer);
+      inactivityTimer = null;
+    }
+  };
 
   const close = () => {
     if (!closed) {
       closed = true;
+      clearInactivityTimer();
       source.close();
     }
+  };
+
+  const scheduleInactivityTimeout = () => {
+    clearInactivityTimer();
+    inactivityTimer = setTimeout(() => {
+      if (closed) return;
+      close();
+      handlers.onNetworkError?.(new Error("SSE 在等待服务端事件时超时。请通过任务状态或诊断详情恢复结果。"));
+    }, TASK_STREAM_INACTIVITY_TIMEOUT_MS);
   };
 
   const listen = <T>(eventName: string, handler: EventHandler<T> | undefined) => {
     if (!handler) return;
     source.addEventListener(eventName, (event) => {
+      scheduleInactivityTimeout();
       const payload = parseJson<T>(event as MessageEvent<string>, handlers.onParseError);
       if (payload !== undefined) handler(payload);
     });
@@ -80,6 +100,11 @@ export function subscribeToTask(
     close();
     handlers.onNetworkError?.(new Error("SSE 连接意外中断。请通过任务状态或诊断详情恢复结果。"));
   };
+
+  // EventSource may keep retrying at the browser layer when an upstream
+  // proxy silently stalls. Bound that retry window instead of leaving a page
+  // permanently in its submitting state.
+  scheduleInactivityTimeout();
 
   return { close };
 }

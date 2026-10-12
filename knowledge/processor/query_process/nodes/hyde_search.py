@@ -46,16 +46,16 @@ class HyDeSearchNode(BaseNode):
         bge_m3_client = AIClients.get_bge_m3_client()
         milvus_client = StorageClients.get_milvus_client()
         if not bge_m3_client or not milvus_client:
-            return state
+            return {}
         embedding_document = f"{validated_query}\n{hy_document}"
 
         if not embedding_document:
             self.logger.warning("embedding_document 为空，跳过 HyDE 检索")
-            return state
+            return {}
 
         embedding_result = generate_bge_m3_hybrid_vectors(bge_m3_client, [embedding_document], is_query=True)
         if not embedding_result:
-            return state
+            return {}
 
         # 4.构建过滤条件
         filter_expr, expr_params = item_names_filter(validate_item_names, device_id)
@@ -76,7 +76,7 @@ class HyDeSearchNode(BaseNode):
                                             ])
 
         if not resp or not resp[0]:
-            return state
+            return {}
 
         # 6.返回结果
         return {"hyde_embedding_chunks": resp[0]}

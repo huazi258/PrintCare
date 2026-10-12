@@ -219,6 +219,24 @@ class DiagnosisDecisionNodeTestCase(unittest.TestCase):
         self.assertEqual(len(llm.prompts), 2)
         self.assertEqual(result["diagnosis_candidate"]["action"], "answer")
 
+    def test_repeated_answered_question_after_bounded_retry_degrades_to_insufficient(self):
+        llm = FakeLlm([ask_payload("喷嘴是否已经清洁？"), ask_payload("喷嘴是否已经清洁？")])
+        with patch(
+            "knowledge.processor.query_process.nodes.diagnosis_decision.AIClients.get_llm_openai",
+            return_value=llm,
+        ):
+            result = DiagnosisDecisionNode().process(
+                self._state(
+                    diagnosis_answer_history=[
+                        {"question": "喷嘴是否已经清洁？", "option": "是", "kind": "confirmed"}
+                    ]
+                )
+            )
+
+        self.assertEqual(len(llm.prompts), 2)
+        self.assertEqual(result["diagnosis_candidate"]["action"], "insufficient")
+        self.assertIn("重复", result["diagnosis_candidate"]["reason"])
+
     def test_round_limit_converts_repeated_ask_to_safe_insufficient_candidate(self):
         llm = FakeLlm([ask_payload(), ask_payload()])
         with patch(
